@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+import webview
+from nicegui import app as nicegui_app
+from nicegui import run as nicegui_run
 from nicegui import ui
 
 from core import config
@@ -31,6 +32,8 @@ def build_settings(app_state: dict) -> None:
     # --- Input-Ordner ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
         ui.label('Eingabe-Ordner').classes(f'text-sm font-semibold {design.TEXT} mb-2')
+        ui.label('Nur aktivierte Ordner werden beim Scannen berücksichtigt.') \
+            .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-3')
 
         @ui.refreshable
         def folders_list():
@@ -41,43 +44,50 @@ def build_settings(app_state: dict) -> None:
                         .classes('flex-grow')
                     folder_input.on('change', lambda e, idx=i: _update_folder_path(idx, e.value))
 
+                    ui.button(
+                        icon='folder_open',
+                        on_click=lambda idx=i: _pick_folder(idx, folders_list.refresh),
+                    ).props('flat dense round size=sm color=blue-5') \
+                     .tooltip('Ordner auswählen')
+
                     enabled_sw = ui.switch(value=folder.get("enabled", True)) \
                         .props('dense color=blue-5')
+                    enabled_sw.tooltip('Ordner aktiv')
                     enabled_sw.on('change', lambda e, idx=i: _update_folder_enabled(idx, e.value))
 
-                    watch_sw = ui.switch(value=folder.get("watch", True)) \
-                        .props('dense color=amber-5')
-                    watch_sw.tooltip('Ordner ueberwachen')
-
-                    ui.button(icon='delete',
-                              on_click=lambda idx=i: _remove_folder(idx, folders_list.refresh)) \
-                        .props('flat dense round size=sm color=negative')
+                    ui.button(
+                        icon='delete',
+                        on_click=lambda idx=i: _remove_folder(idx, folders_list.refresh),
+                    ).props('flat dense round size=sm color=negative')
 
             if not folders:
                 ui.label('Keine Ordner konfiguriert').classes(f'text-xs {design.TEXT_SEC} italic')
 
         folders_list()
 
-        def add_folder():
-            folders = cfg.get("input_folders", [])
-            folders.append({"path": "./inbox_new", "enabled": True, "watch": True})
-            config.save()
-            folders_list.refresh()
-
-        ui.button('Ordner hinzufuegen', icon='create_new_folder', on_click=add_folder) \
+        ui.button('Ordner hinzufügen', icon='create_new_folder',
+                  on_click=lambda: _add_folder_via_dialog(folders_list.refresh)) \
             .props('flat no-caps color=primary').classes('mt-2')
 
     # --- Ausgabe-Ordner ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
         ui.label('Ausgabe').classes(f'text-sm font-semibold {design.TEXT} mb-2')
-        output_input = design.dark_input('Basis-Ordner', value=cfg.get("output", {}).get("base_path", "./sorted"))
-        output_input.on('change', lambda e: _update_output(e.value))
+        with ui.row().classes('w-full items-center gap-2'):
+            output_input = design.dark_input(
+                'Basis-Ordner', value=cfg.get("output", {}).get("base_path", "./sorted")
+            ).classes('flex-grow')
+            output_input.on('change', lambda e: _update_output(e.value))
+            ui.button(icon='folder_open', on_click=lambda: _pick_output_folder(output_input)) \
+                .props('flat dense round size=sm color=blue-5').tooltip('Ordner auswählen')
 
     # --- Ollama/OCR ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
         with ui.row().classes('items-center justify-between w-full mb-2'):
             ui.label('OCR / Ollama').classes(f'text-sm font-semibold {design.TEXT}')
             _ocr_status_badge(cfg)
+
+        ui.label('Wird nur verwendet wenn kein Absender-Template passt.') \
+            .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-2')
 
         ollama_cfg = cfg.get("ollama", {})
         with ui.grid(columns=2).classes('w-full gap-3'):
@@ -102,6 +112,51 @@ def build_settings(app_state: dict) -> None:
 
         ui.button('Verbindung testen', icon='wifi_tethering', on_click=check_ocr) \
             .props('flat no-caps color=primary').classes('mt-2')
+
+
+async def _pick_folder(idx: int, refresh_fn) -> None:
+    """Öffnet OS-Ordner-Dialog und aktualisiert den Pfad."""
+    try:
+        result = await nicegui_run.io_bound(
+            nicegui_app.native.main_window.create_file_dialog,
+            webview.FOLDER_DIALOG,
+        )
+        if result:
+            _update_folder_path(idx, result[0])
+            refresh_fn()
+    except Exception:
+        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
+
+
+async def _add_folder_via_dialog(refresh_fn) -> None:
+    """Öffnet OS-Ordner-Dialog und fügt neuen Ordner hinzu."""
+    try:
+        result = await nicegui_run.io_bound(
+            nicegui_app.native.main_window.create_file_dialog,
+            webview.FOLDER_DIALOG,
+        )
+        if result:
+            cfg = config.get()
+            folders = cfg.get("input_folders", [])
+            folders.append({"path": result[0], "enabled": True})
+            config.save()
+            refresh_fn()
+    except Exception:
+        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
+
+
+async def _pick_output_folder(output_input) -> None:
+    """Öffnet OS-Ordner-Dialog für den Ausgabe-Ordner."""
+    try:
+        result = await nicegui_run.io_bound(
+            nicegui_app.native.main_window.create_file_dialog,
+            webview.FOLDER_DIALOG,
+        )
+        if result:
+            output_input.set_value(result[0])
+            _update_output(result[0])
+    except Exception:
+        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
 
 
 def _ocr_status_badge(cfg: dict) -> None:

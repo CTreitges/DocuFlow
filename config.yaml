@@ -1,4 +1,3 @@
-# DocuFlow Konfiguration
 app:
   name: DocuFlow
   version: "0.1"
@@ -7,9 +6,9 @@ app:
 
 # Eingabe-Ordner (beliebig viele)
 input_folders:
-  - path: "./inbox"
-    enabled: true
-    watch: true
+- path: "./inbox"
+  enabled: true
+  watch: true
 
 # Ausgabe-Basis
 output:
@@ -17,8 +16,6 @@ output:
 
 # Auto-Sortierung (Default: AUS fuer Testphase)
 auto_mode: false
-
-# Ollama / GLM-OCR Einstellungen
 ollama:
   url: "http://localhost:11434"
   model: "glm-ocr"

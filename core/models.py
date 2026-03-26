@@ -15,6 +15,7 @@ class DocumentStatus(str, Enum):
     REVIEW = "review"
     PROCESSED = "verarbeitet"
     ERROR = "fehler"
+    IGNORED = "ignoriert"
 
 
 class DocumentType(str, Enum):
