@@ -56,28 +56,30 @@ async def extract_from_pdf(
     model: str = "glm-ocr",
     timeout: int = 120,
 ) -> ExtractionResult:
-    """Extrahiert Daten aus einem PDF via GLM-OCR."""
+    """Extrahiert Daten aus einem PDF via GLM-OCR (async, blockiert Event-Loop nicht)."""
+    import asyncio
     file_path = Path(file_path)
 
-    img_bytes = pdf_reader.render_page_as_image(file_path, page_num=0, dpi=200)
+    # Sync-Operationen in Thread auslagern damit Event-Loop frei bleibt
+    loop = asyncio.get_event_loop()
+    img_bytes = await loop.run_in_executor(
+        None, pdf_reader.render_page_as_image, file_path, 0, 200
+    )
     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
-    client = ollama.Client(host=ollama_url)
+    # AsyncClient statt Client — blockiert Event-Loop nicht während Ollama antwortet
+    client = ollama.AsyncClient(host=ollama_url)
 
-    response = client.chat(
+    response = await client.chat(
         model=model,
         messages=[
-            {
-                "role": "system",
-                "content": "You are a document extraction assistant. Always respond in English with valid JSON only. Never use Chinese characters.",
-            },
             {
                 "role": "user",
                 "content": EXTRACTION_PROMPT,
                 "images": [img_b64],
             },
         ],
-        options={"num_gpu": 0},  # CPU-Modus: glmocr-Architektur hat CUDA-Bug auf Pascal GPUs
+        options={"num_gpu": 99},  # GPU-Modus: minicpm-v läuft auf Pascal (GTX 1080 Ti)
     )
 
     raw_response = response.message.content
