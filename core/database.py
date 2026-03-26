@@ -95,6 +95,12 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def clear_all(self) -> None:
+        """Loescht alle Dokumente und History-Eintraege."""
+        self.conn.execute("DELETE FROM history")
+        self.conn.execute("DELETE FROM documents")
+        self.conn.commit()
+
     def get_stats(self) -> dict:
         stats = {}
         for status in DocumentStatus:

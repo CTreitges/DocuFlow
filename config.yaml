@@ -6,13 +6,13 @@ app:
 
 # Eingabe-Ordner (beliebig viele)
 input_folders:
-- path: "./inbox"
+- path: "D:/Dokumente/Teller/Test/DocuFlow/input"
   enabled: true
   watch: true
 
 # Ausgabe-Basis
 output:
-  base_path: "./sorted"
+  base_path: "D:/Dokumente/Teller/Test/DocuFlow/export"
 
 # Auto-Sortierung (Default: AUS fuer Testphase)
 auto_mode: false
