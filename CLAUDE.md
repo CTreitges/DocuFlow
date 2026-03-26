@@ -21,18 +21,27 @@ Wenn Aufgabe: wiederholbar + >3 Schritte + kein passender Skill → **Skill-Date
 
 Intelligentes Dokumenten-Management-Tool: PDFs/Bilder → OCR → Template-Matching → automatische Sortierung & Umbenennung.
 
-## Kerndateien (werden erst nach Projektstart befüllt)
+## Kerndateien
 
 | Datei | Inhalt |
 |-------|--------|
-| `main.py` | NiceGUI App-Einstieg, Routing, Dark-Mode-Setup |
-| `ui/` | NiceGUI-Seiten und -Komponenten |
-| `ui/design.py` | Design-Konstanten (Farben, Tailwind-Klassen) |
+| `app.py` | NiceGUI App-Einstieg, Routing, Dark-Mode-Setup, Sidebar |
+| `ui/design.py` | Design-Konstanten (Farben, Tailwind-Klassen), Hilfs-Komponenten |
+| `ui/pages/inbox.py` | Inbox-Seite: Dokumente sichten, verarbeiten, bestaetigen |
+| `ui/pages/dashboard.py` | Dashboard: Stats, sortierte Dokumente, Activity-Log |
+| `ui/pages/rules.py` | Visueller Sortier-Regeln-Editor (WANN→WOHIN→WIE BENENNEN) |
+| `ui/pages/settings.py` | Einstellungen: Ordner, Auto-Modus, Ollama-Config |
+| `ui/pages/templates_page.py` | Template-Verwaltung |
 | `core/processor.py` | Dreistufige Verarbeitungs-Pipeline |
-| `core/ocr.py` | GLM-OCR via Ollama |
-| `core/templates.py` | Template-Matching und -Verwaltung |
-| `core/rules.py` | Sortier-Regeln (WANN→WOHIN→WIE BENENNEN) |
-| `db/models.py` | Pydantic-Modelle + SQLite-Schema |
+| `core/ocr_engine.py` | GLM-OCR via Ollama |
+| `core/pdf_reader.py` | PDF Text-Extraktion (PyMuPDF) |
+| `core/template_matcher.py` | Muster-basierte Extraktion bekannter Absender |
+| `core/template_generator.py` | Auto-Template aus bestaetigter KI-Extraktion |
+| `core/file_organizer.py` | Dateien sortieren/umbenennen nach Regeln |
+| `core/rules_store.py` | Sortier-Regeln laden/speichern (YAML) |
+| `core/models.py` | Pydantic-Modelle + SQLite-Schema |
+| `core/database.py` | SQLite Datenbank-Interface |
+| `core/config.py` | Config-Loader (ruamel.yaml) |
 | `config.yaml` | App-Konfiguration via ruamel.yaml |
 
 ## Umgebung

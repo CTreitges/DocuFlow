@@ -1,0 +1,33 @@
+# DocuFlow Konfiguration
+app:
+  name: DocuFlow
+  version: "0.1"
+  host: "127.0.0.1"
+  port: 8080
+
+# Eingabe-Ordner (beliebig viele)
+input_folders:
+  - path: "./inbox"
+    enabled: true
+    watch: true
+
+# Ausgabe-Basis
+output:
+  base_path: "./sorted"
+
+# Auto-Sortierung (Default: AUS fuer Testphase)
+auto_mode: false
+
+# Ollama / GLM-OCR Einstellungen
+ollama:
+  url: "http://localhost:11434"
+  model: "glm-ocr"
+  timeout: 120
+
+# Datenbank
+database:
+  path: "./data/docuflow.db"
+
+# Templates
+templates:
+  path: "./templates"

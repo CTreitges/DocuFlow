@@ -1,0 +1,8 @@
+nicegui
+pywebview
+pymupdf
+ollama
+ruamel.yaml
+pydantic
+watchdog
+aiosqlite

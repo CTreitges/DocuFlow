@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+data/
+inbox/
+sorted/
+templates/*.yaml
+!templates/beispiel_amazon.yaml
+.env
+*.db

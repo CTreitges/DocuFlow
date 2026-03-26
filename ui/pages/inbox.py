@@ -1,0 +1,247 @@
+"""DocuFlow Inbox-Seite — Neue Dokumente sichten, verarbeiten, bestaetigen."""
+
+from __future__ import annotations
+
+from nicegui import ui
+
+from ui import design
+
+
+def build_inbox(app_state: dict) -> None:
+    """Baut die Inbox-Seite."""
+    processor = app_state["processor"]
+    db = app_state["db"]
+
+    design.section_header("Eingang", "inbox")
+
+    with ui.row().classes('w-full gap-3 items-center mb-4'):
+        scan_btn = ui.button('Ordner scannen', icon='search', on_click=lambda: _scan(app_state)) \
+            .props('no-caps color=primary')
+        process_all_btn = ui.button('Alle verarbeiten', icon='play_arrow',
+                                     on_click=lambda: _process_all(app_state)) \
+            .props('no-caps outline color=primary')
+        ui.space()
+        status_label = ui.label('').classes(f'text-sm {design.TEXT_SEC}')
+        app_state["inbox_status"] = status_label
+
+    @ui.refreshable
+    def doc_table():
+        docs = db.get_documents()
+        new_docs = [d for d in docs if d.status.value in ("neu", "review", "verarbeitung", "fehler")]
+
+        if not new_docs:
+            with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-8 w-full'):
+                with ui.column().classes('items-center gap-3 w-full'):
+                    ui.icon('inbox', size='xl').classes(f'{design.TEXT_MUTED_CLS}')
+                    ui.label('Keine neuen Dokumente').classes(f'text-base {design.TEXT_SEC}')
+                    ui.label('Klicke "Ordner scannen" um nach neuen PDFs zu suchen.') \
+                        .classes(f'text-sm {design.TEXT_MUTED_CLS}')
+            return
+
+        row_data = []
+        for d in new_docs:
+            ext = d.extraction
+            row_data.append({
+                "id": d.id,
+                "name": d.file_name,
+                "status": d.status.value,
+                "sender": ext.sender if ext else "",
+                "date": ext.date.isoformat() if ext and ext.date else "",
+                "amount": f"{ext.total_amount:.2f} {ext.currency}" if ext and ext.total_amount else "",
+                "invoice_nr": ext.invoice_number if ext else "",
+                "confidence": _avg_confidence(ext) if ext else "",
+            })
+
+        grid = ui.aggrid({
+            'defaultColDef': {'sortable': True, 'resizable': True, 'filter': True},
+            'columnDefs': [
+                {'headerName': '', 'field': 'id', 'width': 50, 'checkboxSelection': True,
+                 'headerCheckboxSelection': True},
+                {'headerName': 'Dateiname', 'field': 'name', 'flex': 2, 'cellClass': 'font-medium'},
+                {'headerName': 'Status', 'field': 'status', 'width': 110},
+                {'headerName': 'Absender', 'field': 'sender', 'flex': 1},
+                {'headerName': 'Datum', 'field': 'date', 'width': 120},
+                {'headerName': 'Betrag', 'field': 'amount', 'width': 120, 'type': 'rightAligned'},
+                {'headerName': 'Re-Nr.', 'field': 'invoice_nr', 'width': 130},
+                {'headerName': 'Konfidenz', 'field': 'confidence', 'width': 100},
+            ],
+            'rowData': row_data,
+            'rowSelection': 'single',
+        }).classes('w-full h-64').props('dark')
+
+        grid.on('cellClicked', lambda e: _show_detail(e.args['data']['id'], app_state))
+
+    doc_table()
+    app_state["refresh_inbox"] = doc_table.refresh
+
+    # Detail-Bereich
+    detail_container = ui.column().classes('w-full')
+    app_state["inbox_detail"] = detail_container
+
+
+async def _scan(app_state: dict) -> None:
+    processor = app_state["processor"]
+    status = app_state.get("inbox_status")
+    if status:
+        status.set_text("Scanne Ordner...")
+    new_docs = processor.scan_input_folders()
+    if status:
+        status.set_text(f"{len(new_docs)} neue Dokument(e) gefunden")
+    refresh = app_state.get("refresh_inbox")
+    if refresh:
+        refresh()
+
+
+async def _process_all(app_state: dict) -> None:
+    processor = app_state["processor"]
+    db = app_state["db"]
+    status = app_state.get("inbox_status")
+
+    from core.models import DocumentStatus
+    docs = db.get_documents(DocumentStatus.NEW)
+    if not docs:
+        design.notify_info("Keine neuen Dokumente zum Verarbeiten")
+        return
+
+    if status:
+        status.set_text(f"Verarbeite {len(docs)} Dokument(e)...")
+
+    processed = 0
+    for doc in docs:
+        await processor.process_document(doc)
+        processed += 1
+        if status:
+            status.set_text(f"Verarbeitet: {processed}/{len(docs)}")
+
+    if status:
+        status.set_text(f"{processed} Dokument(e) verarbeitet")
+    design.notify_success(f"{processed} Dokument(e) verarbeitet")
+
+    refresh = app_state.get("refresh_inbox")
+    if refresh:
+        refresh()
+
+
+def _show_detail(doc_id: int, app_state: dict) -> None:
+    db = app_state["db"]
+    doc = db.get_document(doc_id)
+    if not doc:
+        return
+
+    container = app_state.get("inbox_detail")
+    if not container:
+        return
+
+    container.clear()
+
+    with container:
+        with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-5 w-full mt-4'):
+            with ui.row().classes('items-center justify-between w-full mb-3'):
+                ui.label(doc.file_name).classes(f'text-base font-semibold {design.TEXT}')
+                design.status_badge(doc.status.value)
+
+            if doc.extraction:
+                _build_extraction_view(doc, app_state)
+            else:
+                ui.label('Noch nicht verarbeitet — klicke "Alle verarbeiten"') \
+                    .classes(f'text-sm {design.TEXT_SEC}')
+
+                async def process_single():
+                    processor = app_state["processor"]
+                    updated = await processor.process_document(doc)
+                    _show_detail(doc_id, app_state)
+                    refresh = app_state.get("refresh_inbox")
+                    if refresh:
+                        refresh()
+
+                ui.button('Jetzt verarbeiten', icon='play_arrow',
+                          on_click=process_single).props('no-caps color=primary')
+
+
+def _build_extraction_view(doc, app_state: dict) -> None:
+    """Zeigt extrahierte Daten zum Pruefen/Korrigieren."""
+    ext = doc.extraction
+    if not ext:
+        return
+
+    with ui.grid(columns=2).classes('w-full gap-x-4 gap-y-2'):
+        _confidence_field("Absender", ext.sender, ext.confidence.get("sender", 0))
+        _confidence_field("Datum", str(ext.date or ""), ext.confidence.get("date", 0))
+        _confidence_field("Rechnungsnr.", ext.invoice_number, ext.confidence.get("invoice_number", 0))
+        _confidence_field("Betrag", f"{ext.total_amount:.2f} {ext.currency}" if ext.total_amount else "",
+                          ext.confidence.get("total_amount", 0))
+        _confidence_field("MwSt-Satz", f"{ext.vat_rate}%" if ext.vat_rate else "", 0)
+        _confidence_field("MwSt-Betrag", f"{ext.vat_amount:.2f}" if ext.vat_amount else "", 0)
+        _confidence_field("IBAN", ext.iban, 0)
+        _confidence_field("Kundennr.", ext.customer_number, 0)
+        _confidence_field("Zahlungsziel", str(ext.due_date or ""), 0)
+        _confidence_field("Dokumenttyp", ext.document_type.value, 0)
+
+    if ext.line_items:
+        ui.label('Positionen').classes(f'text-sm font-semibold {design.TEXT} mt-3')
+        items_data = [
+            {"pos": i + 1, "beschreibung": item.description,
+             "menge": item.quantity or "", "einzelpreis": item.unit_price or "",
+             "gesamt": item.total or ""}
+            for i, item in enumerate(ext.line_items)
+        ]
+        ui.aggrid({
+            'columnDefs': [
+                {'headerName': '#', 'field': 'pos', 'width': 50},
+                {'headerName': 'Beschreibung', 'field': 'beschreibung', 'flex': 2},
+                {'headerName': 'Menge', 'field': 'menge', 'width': 80},
+                {'headerName': 'Einzelpreis', 'field': 'einzelpreis', 'width': 100},
+                {'headerName': 'Gesamt', 'field': 'gesamt', 'width': 100},
+            ],
+            'rowData': items_data,
+        }).classes('w-full h-32').props('dark')
+
+    with ui.row().classes('gap-3 mt-4'):
+        def do_confirm():
+            processor = app_state["processor"]
+            result = processor.confirm_and_sort(doc)
+            if result:
+                design.notify_success(f"Sortiert nach: {result}")
+            else:
+                design.notify_info("Bestaetigt (keine passende Sortier-Regel)")
+            refresh = app_state.get("refresh_inbox")
+            if refresh:
+                refresh()
+            container = app_state.get("inbox_detail")
+            if container:
+                container.clear()
+
+        ui.button('Bestaetigen & Sortieren', icon='check',
+                  on_click=do_confirm).props('no-caps color=positive')
+        ui.button('Ueberspringen', icon='skip_next',
+                  on_click=lambda: app_state.get("inbox_detail", ui.column()).clear()) \
+            .props('no-caps flat color=grey-5')
+
+
+def _confidence_field(label: str, value: str, confidence: float) -> None:
+    """Einzelnes Feld mit Konfidenz-Anzeige (rot/gelb/gruen)."""
+    if confidence >= 0.8:
+        color = design.SUCCESS
+    elif confidence >= 0.5:
+        color = design.WARNING
+    elif confidence > 0:
+        color = design.ERROR
+    else:
+        color = design.MUTED
+
+    with ui.column().classes('gap-0'):
+        with ui.row().classes('items-center gap-1'):
+            ui.label(label).classes(f'text-xs {design.TEXT_MUTED_CLS}')
+            if confidence > 0:
+                ui.icon('circle', size='8px').classes(f'text-[{color}]')
+        ui.label(value or "—").classes(f'text-sm {design.TEXT}')
+
+
+def _avg_confidence(ext) -> str:
+    if not ext or not ext.confidence:
+        return ""
+    values = [v for v in ext.confidence.values() if v > 0]
+    if not values:
+        return ""
+    avg = sum(values) / len(values)
+    return f"{avg:.0%}"
