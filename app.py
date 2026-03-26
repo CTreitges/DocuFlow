@@ -126,10 +126,6 @@ def _update_nav_active(active_tab: str, nav_buttons: dict[str, ui.button]) -> No
                                 f"{design.TEXT_SEC}")
 
 
-from nicegui import app as nicegui_app
-
-nicegui_app.native.window_args["text"] = "DocuFlow"
-
 ui.run(
     title="DocuFlow",
     dark=True,
