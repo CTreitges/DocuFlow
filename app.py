@@ -17,6 +17,7 @@ from ui.pages.inbox import build_inbox
 from ui.pages.rules import build_rules_editor
 from ui.pages.settings import build_settings
 from ui.pages.templates_page import build_templates
+from ui.pages.debug import build_debug
 
 cfg = config.load()
 db = Database(cfg.get("database", {}).get("path", "./data/docuflow.db"))
@@ -85,6 +86,7 @@ def main_page():
         for icon, label, tab in [
             ("rule", "Sortier-Regeln", "rules"),
             ("settings", "Einstellungen", "settings"),
+            ("bug_report", "OCR Debug", "debug"),
         ]:
             btn = ui.button(label, icon=icon, on_click=lambda t=tab: navigate(t)) \
                 .classes(f"w-full justify-start rounded-lg px-3 py-2 text-sm font-medium") \
@@ -97,7 +99,7 @@ def main_page():
     with ui.column().classes(f"w-full min-h-screen {design.BG} p-6 gap-0"):
         tabs = ui.tabs().classes("hidden")
         with tabs:
-            for name in ["inbox", "dashboard", "templates", "rules", "settings"]:
+            for name in ["inbox", "dashboard", "templates", "rules", "settings", "debug"]:
                 ui.tab(name)
 
         with ui.tab_panels(tabs, value="inbox") \
@@ -113,6 +115,8 @@ def main_page():
                 build_rules_editor(app_state)
             with ui.tab_panel("settings").classes("p-0"):
                 build_settings(app_state)
+            with ui.tab_panel("debug").classes("p-0"):
+                build_debug(app_state)
 
 
 def _update_nav_active(active_tab: str, nav_buttons: dict[str, ui.button]) -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import webview
-from nicegui import app as nicegui_app
+import subprocess
+import sys
+
 from nicegui import run as nicegui_run
 from nicegui import ui
 
@@ -113,50 +114,70 @@ def build_settings(app_state: dict) -> None:
         ui.button('Verbindung testen', icon='wifi_tethering', on_click=check_ocr) \
             .props('flat no-caps color=primary').classes('mt-2')
 
+    # --- Datenbank zurücksetzen ---
+    with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
+        with ui.row().classes('items-center justify-between w-full'):
+            with ui.column().classes('gap-0'):
+                ui.label('Datenbank zurücksetzen').classes(f'text-sm font-semibold {design.TEXT}')
+                ui.label('Alle Dokumente und History-Einträge löschen. Konfiguration bleibt erhalten.') \
+                    .classes(f'text-xs {design.TEXT_SEC}')
+
+            async def do_clear():
+                db = app_state["db"]
+                db.clear_all()
+                fn = app_state.get("refresh_inbox")
+                if fn:
+                    fn()
+                design.notify_success("Datenbank geleert")
+
+            ui.button('Alles löschen', icon='delete_forever', on_click=do_clear) \
+                .props('no-caps color=negative outline')
+
+
+def _open_folder_dialog() -> str | None:
+    """Öffnet nativen Windows-Ordner-Dialog via PowerShell (kein GUI-Thread-Konflikt)."""
+    ps = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+        "$d.Description = 'Ordner auswählen'; "
+        "$d.ShowNewFolderButton = $true; "
+        "if ($d.ShowDialog() -eq 'OK') { Write-Output $d.SelectedPath }"
+    )
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+    result = subprocess.run(
+        ['powershell', '-NoProfile', '-NonInteractive', '-Command', ps],
+        capture_output=True, text=True, timeout=120,
+        creationflags=flags,
+    )
+    path = result.stdout.strip()
+    return path if path else None
+
 
 async def _pick_folder(idx: int, refresh_fn) -> None:
     """Öffnet OS-Ordner-Dialog und aktualisiert den Pfad."""
-    try:
-        result = await nicegui_run.io_bound(
-            nicegui_app.native.main_window.create_file_dialog,
-            webview.FOLDER_DIALOG,
-        )
-        if result:
-            _update_folder_path(idx, result[0])
-            refresh_fn()
-    except Exception:
-        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
+    path = await nicegui_run.io_bound(_open_folder_dialog)
+    if path:
+        _update_folder_path(idx, path)
+        refresh_fn()
 
 
 async def _add_folder_via_dialog(refresh_fn) -> None:
     """Öffnet OS-Ordner-Dialog und fügt neuen Ordner hinzu."""
-    try:
-        result = await nicegui_run.io_bound(
-            nicegui_app.native.main_window.create_file_dialog,
-            webview.FOLDER_DIALOG,
-        )
-        if result:
-            cfg = config.get()
-            folders = cfg.get("input_folders", [])
-            folders.append({"path": result[0], "enabled": True})
-            config.save()
-            refresh_fn()
-    except Exception:
-        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
+    path = await nicegui_run.io_bound(_open_folder_dialog)
+    if path:
+        cfg = config.get()
+        folders = cfg.get("input_folders", [])
+        folders.append({"path": path, "enabled": True})
+        config.save()
+        refresh_fn()
 
 
 async def _pick_output_folder(output_input) -> None:
     """Öffnet OS-Ordner-Dialog für den Ausgabe-Ordner."""
-    try:
-        result = await nicegui_run.io_bound(
-            nicegui_app.native.main_window.create_file_dialog,
-            webview.FOLDER_DIALOG,
-        )
-        if result:
-            output_input.set_value(result[0])
-            _update_output(result[0])
-    except Exception:
-        design.notify_error("Ordner-Dialog konnte nicht geöffnet werden")
+    path = await nicegui_run.io_bound(_open_folder_dialog)
+    if path:
+        output_input.set_value(path)
+        _update_output(path)
 
 
 def _ocr_status_badge(cfg: dict) -> None:

@@ -14,26 +14,29 @@ from core import pdf_reader
 from core.models import DocumentType, ExtractionResult, LineItem
 
 
-EXTRACTION_PROMPT = """Analysiere dieses Dokument und extrahiere folgende Informationen als JSON:
+EXTRACTION_PROMPT = """You are a document data extraction assistant. Analyze this document image and extract the following information as JSON. IMPORTANT: Respond in English only. Return ONLY the JSON, no explanation.
 
 {
-  "sender": "Firmenname des Absenders",
+  "sender": "company name of sender (in original language)",
   "date": "YYYY-MM-DD",
-  "invoice_number": "Rechnungsnummer",
+  "invoice_number": "invoice number or empty string",
   "total_amount": 0.00,
   "currency": "EUR",
   "vat_rate": 19.0,
   "vat_amount": 0.00,
-  "due_date": "YYYY-MM-DD oder null",
-  "iban": "IBAN oder leer",
-  "customer_number": "Kundennummer oder leer",
+  "due_date": "YYYY-MM-DD or null",
+  "iban": "IBAN or empty string",
+  "customer_number": "customer number or empty string",
   "document_type": "rechnung|vertrag|lieferschein|brief|sonstig",
   "line_items": [
-    {"description": "Beschreibung", "quantity": 1, "unit_price": 0.00, "total": 0.00}
+    {"description": "item description", "quantity": 1, "unit_price": 0.00, "total": 0.00}
   ]
 }
 
-Gib NUR das JSON zurueck, keine Erklaerung. Felder die nicht gefunden werden als null oder leerer String."""
+Rules:
+- Return ONLY valid JSON, no markdown, no Chinese, no explanation
+- Missing fields: use null for numbers/dates, empty string for text
+- document_type must be one of: rechnung, vertrag, lieferschein, brief, sonstig"""
 
 
 def is_available(ollama_url: str = "http://localhost:11434", model: str = "glm-ocr") -> bool:
@@ -65,11 +68,16 @@ async def extract_from_pdf(
         model=model,
         messages=[
             {
+                "role": "system",
+                "content": "You are a document extraction assistant. Always respond in English with valid JSON only. Never use Chinese characters.",
+            },
+            {
                 "role": "user",
                 "content": EXTRACTION_PROMPT,
                 "images": [img_b64],
-            }
+            },
         ],
+        options={"num_gpu": 0},  # CPU-Modus: glmocr-Architektur hat CUDA-Bug auf Pascal GPUs
     )
 
     raw_response = response.message.content
