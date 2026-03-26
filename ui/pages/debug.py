@@ -104,10 +104,10 @@ async def _process_pdf(
         processor = app_state['processor']
         cfg = app_state['cfg']
 
-        # Stufe 1: Text-Extraktion
-        has_text = pdf_reader.has_text(pdf_path)
-        raw_text = pdf_reader.extract_text(pdf_path) if has_text else ''
-        page_count = pdf_reader.get_page_count(pdf_path)
+        # Stufe 1: Text-Extraktion (in Thread, blockiert Event-Loop nicht)
+        has_text = await nicegui_run.io_bound(pdf_reader.has_text, pdf_path)
+        raw_text = await nicegui_run.io_bound(pdf_reader.extract_text, pdf_path) if has_text else ''
+        page_count = await nicegui_run.io_bound(pdf_reader.get_page_count, pdf_path)
         progress_bar.set_value(0.2)
         status_label.set_text(
             f'{pdf_path.name} — {page_count} Seite(n), {len(raw_text)} Zeichen. Prüfe Templates…'

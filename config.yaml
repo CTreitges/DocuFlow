@@ -18,7 +18,7 @@ output:
 auto_mode: false
 ollama:
   url: "http://localhost:11434"
-  model: "glm-ocr"
+  model: "minicpm-v"
   timeout: 120
 
 # Datenbank

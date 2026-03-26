@@ -51,6 +51,7 @@ class Processor:
 
     async def process_document(self, doc: Document) -> Document:
         """Dreistufige Verarbeitung: Text → Template → OCR."""
+        import asyncio
         doc.status = DocumentStatus.PROCESSING
         self.db.update_document(doc)
 
@@ -60,10 +61,12 @@ class Processor:
             self.db.update_document(doc)
             return doc
 
-        # Stufe 1: Text-Extraktion
+        # Stufe 1: Text-Extraktion (in Thread damit Event-Loop frei bleibt)
+        loop = asyncio.get_event_loop()
         text = ""
-        if pdf_reader.has_text(file_path):
-            text = pdf_reader.extract_text(file_path)
+        has_text = await loop.run_in_executor(None, pdf_reader.has_text, file_path)
+        if has_text:
+            text = await loop.run_in_executor(None, pdf_reader.extract_text, file_path)
 
         # Stufe 2: Template-Matching
         if text:
