@@ -16,6 +16,13 @@ output:
 
 # Auto-Sortierung (Default: AUS fuer Testphase)
 auto_mode: false
+# OCR primär: german-ocr (lokal, auf deutschen Rechnungen trainiert)
+german_ocr:
+  enabled: true
+  backend: "ollama"     # "ollama" (Keyvan/german-ocr-turbo via Ollama, GPU) oder "llamacpp" (lokal, GGUF) oder "huggingface" (CPU)
+  n_gpu_layers: -1      # -1 = volle GPU, 0 = CPU only (nur für llamacpp relevant)
+
+# OCR Fallback: Ollama (falls german-ocr nicht verfügbar oder fehlschlägt)
 ollama:
   url: "http://localhost:11434"
   model: "minicpm-v"

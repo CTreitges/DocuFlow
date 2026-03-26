@@ -11,6 +11,7 @@ from nicegui import run as nicegui_run
 from nicegui import ui
 
 from core import ocr_engine, pdf_reader, template_generator, template_matcher
+from core.ocr_engine import is_german_ocr_available
 from ui import design
 
 
@@ -128,7 +129,10 @@ async def _process_pdf(
             progress_bar.set_value(0.95)
             status_label.set_text(f'✓ Template: {matched_tpl.sender_name}')
         else:
-            status_label.set_text('Kein Template — Ollama OCR läuft… (kann 30–120 Sek. dauern)')
+            german_ocr_cfg = cfg.get('german_ocr', {})
+            use_german_ocr = german_ocr_cfg.get('enabled', True)
+            ocr_label = 'German-OCR' if (use_german_ocr and is_german_ocr_available()) else 'Ollama OCR'
+            status_label.set_text(f'Kein Template — {ocr_label} läuft… (kann 30–120 Sek. dauern)')
 
             # Fortschritt animieren während OCR läuft
             ocr_running = True
@@ -146,14 +150,16 @@ async def _process_pdf(
             extraction = await ocr_engine.extract_from_pdf(
                 pdf_path,
                 ollama_url=ollama_cfg.get('url', 'http://localhost:11434'),
-                model=ollama_cfg.get('model', 'glm-ocr'),
+                model=ollama_cfg.get('model', 'minicpm-v'),
                 timeout=ollama_cfg.get('timeout', 120),
+                german_ocr_backend=german_ocr_cfg.get('backend', 'transformers'),
+                use_german_ocr=use_german_ocr,
             )
             ocr_running = False
-            source = 'Ollama GLM-OCR'
+            source = ocr_label
             used_ocr = True
             status_label.set_text(
-                f'✓ OCR fertig — Absender: {extraction.sender or "unbekannt"}'
+                f'✓ {ocr_label} fertig — Absender: {extraction.sender or "unbekannt"}'
             )
 
         progress_bar.set_value(1.0)
@@ -176,7 +182,7 @@ def _render_results(extraction, source: str, raw_text: str,
                     page_count: int, has_text: bool, used_ocr: bool) -> None:
 
     with ui.row().classes('items-center gap-3 mb-1'):
-        ui.badge('GLM-OCR' if used_ocr else 'Template',
+        ui.badge(source if used_ocr else 'Template',
                  color='blue' if used_ocr else 'positive').props('rounded')
         ui.label(source).classes(f'text-sm font-medium {design.TEXT}')
         ui.label(f'{page_count} Seite(n)').classes(f'text-xs {design.TEXT_MUTED_CLS}')
@@ -185,7 +191,9 @@ def _render_results(extraction, source: str, raw_text: str,
     with ui.tabs().props('dense align=left').classes(f'{design.TEXT}') as result_tabs:
         ui.tab('felder', label='Extrahierte Felder', icon='data_object')
         ui.tab('template', label='Template-Vorschau', icon='code')
-        ui.tab('rohtext', label='Rohtext', icon='article')
+        ui.tab('rohtext', label='PDF-Text', icon='article')
+        if used_ocr:
+            ui.tab('ocr_raw', label='OCR-Output', icon='psychology')
 
     with ui.tab_panels(result_tabs, value='felder').classes('w-full'):
 
@@ -253,6 +261,23 @@ def _render_results(extraction, source: str, raw_text: str,
                 else:
                     ui.label('Kein Rohtext (Bild-PDF → direkt an OCR)') \
                         .classes(f'text-sm {design.TEXT_SEC}')
+
+        if used_ocr:
+            with ui.tab_panel('ocr_raw').classes('p-0'):
+                with ui.card().classes(
+                    f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full'
+                ).props('flat'):
+                    ocr_md = extraction.raw_text or ''
+                    ui.label(f'Roher Modell-Output — {len(ocr_md)} Zeichen') \
+                        .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-2')
+                    if ocr_md:
+                        ui.textarea(value=ocr_md) \
+                            .props('readonly outlined dense dark') \
+                            .classes('w-full font-mono text-xs') \
+                            .style('min-height: 280px')
+                    else:
+                        ui.label('Kein OCR-Output vorhanden') \
+                            .classes(f'text-sm {design.TEXT_SEC}')
 
 
 def _field(label: str, value: str, confidence: float | None) -> None:

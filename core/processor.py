@@ -82,16 +82,24 @@ class Processor:
                                     f"Template '{matched_tpl.sender_name}' erkannt (Score: {confidence:.0%})")
                 return doc
 
-        # Stufe 3: GLM-OCR
+        # Stufe 3: OCR (german-ocr primär, Ollama als Fallback)
         ollama_cfg = self.cfg.get("ollama", {})
+        german_ocr_cfg = self.cfg.get("german_ocr", {})
+        use_german_ocr = german_ocr_cfg.get("enabled", True)
+        german_ocr_backend = german_ocr_cfg.get("backend", "llamacpp")
+        german_ocr_gpu_layers = german_ocr_cfg.get("n_gpu_layers", -1)
+
         if ocr_engine.is_available(ollama_cfg.get("url", "http://localhost:11434"),
-                                   ollama_cfg.get("model", "glm-ocr")):
+                                   ollama_cfg.get("model", "minicpm-v")):
             try:
                 extraction = await ocr_engine.extract_from_pdf(
                     file_path,
                     ollama_url=ollama_cfg.get("url", "http://localhost:11434"),
-                    model=ollama_cfg.get("model", "glm-ocr"),
+                    model=ollama_cfg.get("model", "minicpm-v"),
                     timeout=ollama_cfg.get("timeout", 120),
+                    german_ocr_backend=german_ocr_backend,
+                    german_ocr_gpu_layers=german_ocr_gpu_layers,
+                    use_german_ocr=use_german_ocr,
                 )
                 if text and not extraction.raw_text:
                     extraction.raw_text = text
@@ -99,7 +107,8 @@ class Processor:
                 doc.status = DocumentStatus.REVIEW
                 doc.processed_at = datetime.now()
                 self.db.update_document(doc)
-                self.db.add_history(doc.id, "ocr", "GLM-OCR Extraktion abgeschlossen")
+                ocr_label = "German-OCR" if use_german_ocr and ocr_engine.is_german_ocr_available() else "Ollama-OCR"
+                self.db.add_history(doc.id, "ocr", f"{ocr_label} Extraktion abgeschlossen")
                 return doc
             except Exception as e:
                 doc.status = DocumentStatus.ERROR

@@ -6,3 +6,4 @@ ruamel.yaml
 pydantic
 watchdog
 aiosqlite
+german-ocr

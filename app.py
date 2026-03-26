@@ -5,6 +5,10 @@ NiceGUI App mit Sidebar-Navigation, Dark-Theme und Tab-Panels.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
+from nicegui import app as nicegui_app
 from nicegui import ui
 
 from core import config
@@ -22,6 +26,21 @@ from ui.pages.debug import build_debug
 cfg = config.load()
 db = Database(cfg.get("database", {}).get("path", "./data/docuflow.db"))
 db.connect()
+
+
+@nicegui_app.on_startup
+async def _start_ollama() -> None:
+    """Startet Ollama im Hintergrund falls noch nicht laufend."""
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=flags,
+        )
+    except FileNotFoundError:
+        pass  # Ollama nicht installiert — kein Fehler
 
 
 @ui.page("/")
@@ -57,7 +76,7 @@ def main_page():
 
     # --- Sidebar ---
     with ui.left_drawer(value=True).classes(
-        f"column no-wrap gap-1 {design.BG_SURFACE} {design.BORDER} pt-4 pb-8"
+        f"column no-wrap gap-1 {design.BG_SURFACE} {design.BORDER} pt-4 pb-8 overflow-x-hidden"
     ).props("width=220 bordered") as sidebar:
 
         def navigate(tab_name: str):
