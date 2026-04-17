@@ -13,6 +13,7 @@ import ollama
 
 from core import pdf_reader
 from core.models import DocumentType, ExtractionResult, LineItem
+from core.number_parser import parse_amount
 
 
 # ---------------------------------------------------------------------------
@@ -434,17 +435,7 @@ def _parse_german_markdown(text: str) -> ExtractionResult:
 
 def _safe_float_de(val: str) -> float | None:
     """Konvertiert deutsches Zahlenformat ('1.234,56') in float."""
-    if not val:
-        return None
-    raw = val.strip().replace("€", "").replace(" ", "")
-    if "." in raw and "," in raw:
-        raw = raw.replace(".", "").replace(",", ".")
-    elif "," in raw:
-        raw = raw.replace(",", ".")
-    try:
-        return float(raw)
-    except ValueError:
-        return None
+    return parse_amount(val)
 
 
 # ---------------------------------------------------------------------------
@@ -506,12 +497,7 @@ def _parse_response(raw: str) -> ExtractionResult:
 
 
 def _safe_float(val) -> float | None:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return None
+    return parse_amount(val)
 
 
 def _safe_date(val) -> date | None:
