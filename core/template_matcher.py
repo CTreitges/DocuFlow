@@ -23,7 +23,7 @@ def load_templates(templates_dir: str = "./templates") -> list[Template]:
     templates = []
     for f in sorted(tpl_dir.glob("*.yaml")):
         try:
-            with open(f) as fh:
+            with open(f, encoding="utf-8") as fh:
                 data = _yaml.load(fh)
             if data:
                 templates.append(Template(**data))
