@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import tempfile
 from datetime import date
 from pathlib import Path
 
 import ollama
+
+logger = logging.getLogger(__name__)
 
 from core import pdf_reader
 from core.models import DocumentType, ExtractionResult, LineItem
@@ -136,7 +139,7 @@ async def extract_from_pdf(
             if result.confidence.get("overall", 0) > 0.2:
                 return result
         except Exception:
-            pass  # Weiterleitung zum Fallback
+            logger.exception("German-OCR fehlgeschlagen — Fallback auf Ollama")
 
         # Ollama-Fallback nur wenn Server erreichbar (kein Verbindungsfehler riskieren)
         if not _is_ollama_reachable(ollama_url):
@@ -146,7 +149,7 @@ async def extract_from_pdf(
             )
 
     # --- Fallback: Ollama ---
-    return await _extract_with_ollama(img_bytes, ollama_url, model)
+    return await _extract_with_ollama(img_bytes, ollama_url, model, timeout)
 
 
 def _is_ollama_reachable(ollama_url: str) -> bool:
@@ -183,11 +186,11 @@ async def _extract_with_german_ocr(
 
 
 async def _extract_with_ollama(
-    img_bytes: bytes, ollama_url: str, model: str
+    img_bytes: bytes, ollama_url: str, model: str, timeout: int = 120
 ) -> ExtractionResult:
     """Extraktion via Ollama-Modell (AsyncClient, blockiert Event-Loop nicht)."""
     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-    client = ollama.AsyncClient(host=ollama_url)
+    client = ollama.AsyncClient(host=ollama_url, timeout=timeout)
     response = await client.chat(
         model=model,
         messages=[

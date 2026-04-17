@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 import sys
+import traceback
 
 from nicegui import run as nicegui_run
 from nicegui import ui
@@ -178,7 +180,6 @@ def build_settings(app_state: dict) -> None:
             german_ocr_actions.refresh()
 
         async def install_deps():
-            import traceback
             action_spinner.classes(remove='hidden')
             action_status.set_text('Installiere Abhängigkeiten…')
             install_log.classes(remove='hidden')
@@ -186,7 +187,7 @@ def build_settings(app_state: dict) -> None:
             install_log.push('Installiere: torch transformers accelerate qwen-vl-utils huggingface_hub')
 
             # LlamaCPP mit CUDA für GTX 1080 Ti (Pascal, CUDA 6.1)
-            env = {'CMAKE_ARGS': '-DGGML_CUDA=on', **__import__('os').environ}
+            env = {'CMAKE_ARGS': '-DGGML_CUDA=on', **os.environ}
 
             def _run():
                 return subprocess.run(
@@ -207,9 +208,9 @@ def build_settings(app_state: dict) -> None:
             else:
                 action_status.set_text('Installation fehlgeschlagen — Details im Log')
                 design.notify_error('Abhängigkeiten-Installation fehlgeschlagen')
+            german_ocr_actions.refresh()
 
         async def preload_german_ocr():
-            import traceback
             action_spinner.classes(remove='hidden')
             action_status.set_text('Lade Modell… (4,4 GB Download, bitte warten)')
             install_log.classes(remove='hidden')
