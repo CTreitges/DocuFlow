@@ -87,8 +87,7 @@ def is_model_loaded() -> bool:
 async def preload_model(backend: str = "ollama", n_gpu_layers: int = -1) -> None:
     """Laedt das Modell im Hintergrund vor (blockiert Event-Loop nicht)."""
     import asyncio
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _get_german_ocr, backend, n_gpu_layers)
+    await asyncio.to_thread(_get_german_ocr, backend, n_gpu_layers)
 
 
 def is_available(ollama_url: str = "http://localhost:11434", model: str = "minicpm-v") -> bool:
@@ -125,11 +124,11 @@ async def extract_from_pdf(
     """
     import asyncio
     file_path = Path(file_path)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # Seite als Bild rendern (wird von beiden Backends genutzt)
-    img_bytes = await loop.run_in_executor(
-        None, pdf_reader.render_page_as_image, file_path, 0, 200
+    img_bytes = await asyncio.to_thread(
+        pdf_reader.render_page_as_image, file_path, 0, 200
     )
 
     # --- Primär: german-ocr ---
@@ -167,9 +166,10 @@ def _is_ollama_reachable(ollama_url: str) -> bool:
 # ---------------------------------------------------------------------------
 
 async def _extract_with_german_ocr(
-    img_bytes: bytes, backend: str, n_gpu_layers: int, loop
+    img_bytes: bytes, backend: str, n_gpu_layers: int, loop=None
 ) -> ExtractionResult:
     """Extraktion via german-ocr (schreibt temp-Datei, laeuft in Thread)."""
+    import asyncio
 
     def _run_sync() -> str:
         ocr = _get_german_ocr(backend, n_gpu_layers)
@@ -181,7 +181,7 @@ async def _extract_with_german_ocr(
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-    markdown_text = await loop.run_in_executor(None, _run_sync)
+    markdown_text = await asyncio.to_thread(_run_sync)
     return _parse_german_markdown(markdown_text)
 
 

@@ -144,7 +144,7 @@ async def _process_pdf(
                     if ocr_running:
                         progress_bar.set_value(v)
 
-            asyncio.ensure_future(advance())
+            asyncio.create_task(advance())
 
             ollama_cfg = cfg.get('ollama', {})
             extraction = await ocr_engine.extract_from_pdf(

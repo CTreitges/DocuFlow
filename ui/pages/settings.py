@@ -163,7 +163,7 @@ def build_settings(app_state: dict) -> None:
                     capture_output=True, text=True,
                 )
 
-            proc = await asyncio.get_event_loop().run_in_executor(None, _run_pip)
+            proc = await asyncio.to_thread(_run_pip)
             action_spinner.classes(add='hidden')
 
             for line in (proc.stdout + proc.stderr).splitlines():
@@ -195,7 +195,7 @@ def build_settings(app_state: dict) -> None:
                     capture_output=True, text=True, env=env,
                 )
 
-            proc = await asyncio.get_event_loop().run_in_executor(None, _run)
+            proc = await asyncio.to_thread(_run)
             action_spinner.classes(add='hidden')
 
             for line in (proc.stdout + proc.stderr).splitlines():
