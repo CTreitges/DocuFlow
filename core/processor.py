@@ -62,11 +62,10 @@ class Processor:
             return doc
 
         # Stufe 1: Text-Extraktion (in Thread damit Event-Loop frei bleibt)
-        loop = asyncio.get_event_loop()
         text = ""
-        has_text = await loop.run_in_executor(None, pdf_reader.has_text, file_path)
+        has_text = await asyncio.to_thread(pdf_reader.has_text, file_path)
         if has_text:
-            text = await loop.run_in_executor(None, pdf_reader.extract_text, file_path)
+            text = await asyncio.to_thread(pdf_reader.extract_text, file_path)
 
         # Stufe 2: Template-Matching
         if text:

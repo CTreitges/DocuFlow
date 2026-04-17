@@ -9,6 +9,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 
 from core.models import DocumentType, ExtractionResult, LineItem, Template
+from core.number_parser import parse_amount
 
 _yaml = YAML()
 
@@ -22,7 +23,7 @@ def load_templates(templates_dir: str = "./templates") -> list[Template]:
     templates = []
     for f in sorted(tpl_dir.glob("*.yaml")):
         try:
-            with open(f) as fh:
+            with open(f, encoding="utf-8") as fh:
                 data = _yaml.load(fh)
             if data:
                 templates.append(Template(**data))
@@ -98,20 +99,17 @@ def _set_field(result: ExtractionResult, field_name: str, value: str) -> None:
     elif field_name == "invoice_number":
         result.invoice_number = value
     elif field_name == "total_amount":
-        try:
-            result.total_amount = float(value.replace(",", ".").replace(" ", ""))
-        except ValueError:
-            pass
+        parsed = parse_amount(value)
+        if parsed is not None:
+            result.total_amount = parsed
     elif field_name == "vat_rate":
-        try:
-            result.vat_rate = float(value.replace(",", ".").replace("%", "").strip())
-        except ValueError:
-            pass
+        parsed = parse_amount(value)
+        if parsed is not None:
+            result.vat_rate = parsed
     elif field_name == "vat_amount":
-        try:
-            result.vat_amount = float(value.replace(",", ".").replace(" ", ""))
-        except ValueError:
-            pass
+        parsed = parse_amount(value)
+        if parsed is not None:
+            result.vat_amount = parsed
     elif field_name == "iban":
         result.iban = value
     elif field_name == "customer_number":

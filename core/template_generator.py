@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 from ruamel.yaml import YAML
@@ -69,11 +68,9 @@ def _generate_field_patterns(extraction: ExtractionResult, text: str) -> dict[st
         patterns["invoice_number"] = context or f"({escaped})"
 
     if extraction.total_amount is not None:
-        amount_str = f"{extraction.total_amount:.2f}"
-        amount_comma = amount_str.replace(".", ",")
         patterns["total_amount"] = (
             r'(?:Gesamt|Total|Summe|Endbetrag|Rechnungsbetrag)[:\s]*'
-            rf'(\d+[.,]\d{{2}})'
+            r'(\d+[.,]\d{2})'
         )
 
     if extraction.date:

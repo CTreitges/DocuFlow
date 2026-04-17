@@ -20,7 +20,7 @@ def load_rules(path: Path | None = None) -> list[SortRule]:
     if not p.exists():
         return _default_rules()
     try:
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             data = _yaml.load(f)
         if not data or not isinstance(data, list):
             return _default_rules()

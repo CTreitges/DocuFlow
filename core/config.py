@@ -22,7 +22,7 @@ def load(path: Path | None = None) -> dict[str, Any]:
         _config = _defaults()
         save(_config, p)
     else:
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             _config = dict(_yaml.load(f))
     return _config
 
@@ -31,7 +31,7 @@ def save(cfg: dict[str, Any] | None = None, path: Path | None = None) -> None:
     global _config
     c = cfg or _config or _defaults()
     p = path or CONFIG_PATH
-    with open(p, "w") as f:
+    with open(p, "w", encoding="utf-8") as f:
         _yaml.dump(c, f)
     _config = c
 

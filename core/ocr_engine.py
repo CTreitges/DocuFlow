@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import tempfile
 from datetime import date
@@ -11,8 +12,11 @@ from pathlib import Path
 
 import ollama
 
+logger = logging.getLogger(__name__)
+
 from core import pdf_reader
 from core.models import DocumentType, ExtractionResult, LineItem
+from core.number_parser import parse_amount
 
 
 # ---------------------------------------------------------------------------
@@ -83,8 +87,7 @@ def is_model_loaded() -> bool:
 async def preload_model(backend: str = "ollama", n_gpu_layers: int = -1) -> None:
     """Laedt das Modell im Hintergrund vor (blockiert Event-Loop nicht)."""
     import asyncio
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _get_german_ocr, backend, n_gpu_layers)
+    await asyncio.to_thread(_get_german_ocr, backend, n_gpu_layers)
 
 
 def is_available(ollama_url: str = "http://localhost:11434", model: str = "minicpm-v") -> bool:
@@ -121,11 +124,11 @@ async def extract_from_pdf(
     """
     import asyncio
     file_path = Path(file_path)
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     # Seite als Bild rendern (wird von beiden Backends genutzt)
-    img_bytes = await loop.run_in_executor(
-        None, pdf_reader.render_page_as_image, file_path, 0, 200
+    img_bytes = await asyncio.to_thread(
+        pdf_reader.render_page_as_image, file_path, 0, 200
     )
 
     # --- Primär: german-ocr ---
@@ -135,7 +138,7 @@ async def extract_from_pdf(
             if result.confidence.get("overall", 0) > 0.2:
                 return result
         except Exception:
-            pass  # Weiterleitung zum Fallback
+            logger.exception("German-OCR fehlgeschlagen — Fallback auf Ollama")
 
         # Ollama-Fallback nur wenn Server erreichbar (kein Verbindungsfehler riskieren)
         if not _is_ollama_reachable(ollama_url):
@@ -145,7 +148,7 @@ async def extract_from_pdf(
             )
 
     # --- Fallback: Ollama ---
-    return await _extract_with_ollama(img_bytes, ollama_url, model)
+    return await _extract_with_ollama(img_bytes, ollama_url, model, timeout)
 
 
 def _is_ollama_reachable(ollama_url: str) -> bool:
@@ -163,9 +166,10 @@ def _is_ollama_reachable(ollama_url: str) -> bool:
 # ---------------------------------------------------------------------------
 
 async def _extract_with_german_ocr(
-    img_bytes: bytes, backend: str, n_gpu_layers: int, loop
+    img_bytes: bytes, backend: str, n_gpu_layers: int, loop=None
 ) -> ExtractionResult:
     """Extraktion via german-ocr (schreibt temp-Datei, laeuft in Thread)."""
+    import asyncio
 
     def _run_sync() -> str:
         ocr = _get_german_ocr(backend, n_gpu_layers)
@@ -177,16 +181,16 @@ async def _extract_with_german_ocr(
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-    markdown_text = await loop.run_in_executor(None, _run_sync)
+    markdown_text = await asyncio.to_thread(_run_sync)
     return _parse_german_markdown(markdown_text)
 
 
 async def _extract_with_ollama(
-    img_bytes: bytes, ollama_url: str, model: str
+    img_bytes: bytes, ollama_url: str, model: str, timeout: int = 120
 ) -> ExtractionResult:
     """Extraktion via Ollama-Modell (AsyncClient, blockiert Event-Loop nicht)."""
     img_b64 = base64.b64encode(img_bytes).decode("utf-8")
-    client = ollama.AsyncClient(host=ollama_url)
+    client = ollama.AsyncClient(host=ollama_url, timeout=timeout)
     response = await client.chat(
         model=model,
         messages=[
@@ -434,17 +438,7 @@ def _parse_german_markdown(text: str) -> ExtractionResult:
 
 def _safe_float_de(val: str) -> float | None:
     """Konvertiert deutsches Zahlenformat ('1.234,56') in float."""
-    if not val:
-        return None
-    raw = val.strip().replace("€", "").replace(" ", "")
-    if "." in raw and "," in raw:
-        raw = raw.replace(".", "").replace(",", ".")
-    elif "," in raw:
-        raw = raw.replace(",", ".")
-    try:
-        return float(raw)
-    except ValueError:
-        return None
+    return parse_amount(val)
 
 
 # ---------------------------------------------------------------------------
@@ -506,12 +500,7 @@ def _parse_response(raw: str) -> ExtractionResult:
 
 
 def _safe_float(val) -> float | None:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return None
+    return parse_amount(val)
 
 
 def _safe_date(val) -> date | None:

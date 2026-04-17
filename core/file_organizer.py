@@ -81,22 +81,27 @@ def preview_target_path(extraction: ExtractionResult, rule: SortRule) -> str:
 
 
 def _matches_conditions(extraction: ExtractionResult, conditions: list[RuleCondition]) -> bool:
-    """Prueft ob alle Bedingungen einer Regel erfuellt sind."""
+    """Prueft ob die Bedingungen einer Regel erfuellt sind.
+
+    AND bindet staerker als OR (entspricht Standard-Boolean-Praezedenz):
+    ``A OR B AND C`` wird zu ``A OR (B AND C)``. Die logic der ersten
+    Bedingung wird ignoriert, da sie keine Vorgaenger-Bedingung hat.
+    """
     if not conditions:
         return True
 
-    results = []
-    for cond in conditions:
-        results.append((cond.logic, _check_condition(extraction, cond)))
-
-    result = results[0][1]
-    for i in range(1, len(results)):
-        logic, val = results[i]
-        if logic == "OR":
-            result = result or val
+    # Gruppiere Conditions entlang OR-Grenzen in AND-Gruppen.
+    and_groups: list[list[bool]] = [[]]
+    for i, cond in enumerate(conditions):
+        val = _check_condition(extraction, cond)
+        # Die logic der ersten Bedingung ist bedeutungslos -> immer in erste Gruppe
+        if i > 0 and cond.logic == "OR":
+            and_groups.append([val])
         else:
-            result = result and val
-    return result
+            and_groups[-1].append(val)
+
+    # AND-Gruppen: alle muessen true sein; OR zwischen Gruppen: mindestens eine
+    return any(all(group) for group in and_groups)
 
 
 def _check_condition(extraction: ExtractionResult, cond: RuleCondition) -> bool:
