@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -94,6 +95,67 @@ class Database:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_history_filtered(self, filter_type: str = "alles", limit: int = 100) -> list[dict]:
+        """History gefiltert: 'heute', 'woche' oder 'alles'."""
+        from datetime import date, timedelta
+        where = ""
+        if filter_type == "heute":
+            today = date.today().isoformat()
+            where = f" AND h.timestamp >= '{today}'"
+        elif filter_type == "woche":
+            since = (date.today() - timedelta(days=7)).isoformat()
+            where = f" AND h.timestamp >= '{since}'"
+
+        rows = self.conn.execute(
+            f"""SELECT h.*, d.file_name FROM history h
+               JOIN documents d ON h.document_id = d.id
+               WHERE 1=1{where}
+               ORDER BY h.timestamp DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_error_history(self, limit: int = 50) -> list[dict]:
+        """Gibt nur Fehler-Einträge zurück."""
+        rows = self.conn.execute(
+            """SELECT h.*, d.file_name FROM history h
+               JOIN documents d ON h.document_id = d.id
+               WHERE h.action = 'error'
+               ORDER BY h.timestamp DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def undo_sort(self, doc_id: int) -> bool:
+        """Rückgängig: Verschobene Datei zurücklegen + Status auf REVIEW zurücksetzen."""
+        doc = self.get_document(doc_id)
+        if not doc or not doc.sorted_path:
+            return False
+
+        sorted_path = Path(doc.sorted_path)
+        if not sorted_path.exists():
+            return False
+
+        target = Path(doc.file_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        final_target = target
+        if final_target.exists():
+            final_target = target.parent / f"{target.stem}_restored{target.suffix}"
+
+        shutil.move(str(sorted_path), str(final_target))
+        doc.file_path = str(final_target)
+        doc.file_name = final_target.name
+        doc.sorted_path = None
+        doc.status = DocumentStatus.REVIEW
+        self.conn.execute(
+            """UPDATE documents SET status=?, file_path=?, file_name=?, sorted_path=? WHERE id=?""",
+            (doc.status.value, doc.file_path, doc.file_name, None, doc_id),
+        )
+        self.conn.commit()
+        self.add_history(doc_id, "undo", f"Sortierung rückgängig: {final_target.name}")
+        return True
 
     def clear_all(self) -> None:
         """Loescht alle Dokumente und History-Eintraege."""
