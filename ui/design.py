@@ -99,6 +99,10 @@ def notify_info(msg: str) -> None:
     ui.notify(msg, type='info', position='top-right', timeout=3000)
 
 
+def notify_warning(msg: str) -> None:
+    ui.notify(msg, type='warning', position='top-right', timeout=5000)
+
+
 def section_header(title: str, icon: str = '') -> None:
     with ui.row().classes('items-center gap-2 mb-2'):
         if icon:

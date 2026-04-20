@@ -89,8 +89,12 @@ class Processor:
         german_ocr_backend = german_ocr_cfg.get("backend", "llamacpp")
         german_ocr_gpu_layers = german_ocr_cfg.get("n_gpu_layers", -1)
 
-        if ocr_engine.is_available(ollama_cfg.get("url", "http://localhost:11434"),
-                                   ollama_cfg.get("model", "minicpm-v")):
+        ocr_available = ocr_engine.is_available(
+            ollama_cfg.get("url", "http://localhost:11434"),
+            ollama_cfg.get("model", "minicpm-v"),
+        )
+
+        if ocr_available:
             try:
                 extraction = await ocr_engine.extract_from_pdf(
                     file_path,
@@ -107,26 +111,82 @@ class Processor:
                 doc.status = DocumentStatus.REVIEW
                 doc.processed_at = datetime.now()
                 self.db.update_document(doc)
-                ocr_label = "German-OCR" if use_german_ocr and ocr_engine.is_german_ocr_available() else "Ollama-OCR"
+                ocr_label = "German-OCR" if (use_german_ocr
+                                              and ocr_engine.is_german_ocr_available()) else "Ollama-OCR"
                 self.db.add_history(doc.id, "ocr", f"{ocr_label} Extraktion abgeschlossen")
                 return doc
-            except Exception as e:
+            except TimeoutError as e:
+                err_msg = f"OCR-Timeout nach {ollama_cfg.get('timeout', 120)}s — Timeout in Settings erhöhen"
                 doc.status = DocumentStatus.ERROR
                 self.db.update_document(doc)
-                self.db.add_history(doc.id, "error", f"OCR-Fehler: {e}")
+                self.db.add_history(doc.id, "error", err_msg)
+                return doc
+            except ConnectionError as e:
+                err_msg = f"OCR-Verbindungsfehler: {e}"
+                doc.status = DocumentStatus.ERROR
+                self.db.update_document(doc)
+                self.db.add_history(doc.id, "error", err_msg)
+                return doc
+            except Exception as e:
+                err_msg = f"OCR-Fehler: {type(e).__name__}: {e}"
+                doc.status = DocumentStatus.ERROR
+                self.db.update_document(doc)
+                self.db.add_history(doc.id, "error", err_msg)
                 return doc
 
-        # Fallback: Nur Text, keine strukturierte Extraktion
+        # Fallback: Nur Text, kein OCR verfügbar
         if text:
             doc.extraction = ExtractionResult(raw_text=text)
             doc.status = DocumentStatus.REVIEW
+            self.db.add_history(doc.id, "ocr",
+                                "Nur Text-Extraktion (kein OCR-Backend verfügbar)")
         else:
             doc.status = DocumentStatus.ERROR
-            self.db.add_history(doc.id, "error", "Kein Text extrahierbar und OCR nicht verfuegbar")
+            self.db.add_history(
+                doc.id, "error",
+                "Kein Text extrahierbar und kein OCR-Backend verfügbar — "
+                "Ollama prüfen oder German-OCR installieren"
+            )
 
         doc.processed_at = datetime.now()
         self.db.update_document(doc)
         return doc
+
+    async def process_and_maybe_auto_sort(self, doc: Document) -> tuple[Document, bool]:
+        """Verarbeitet ein Dokument und sortiert es ggf. automatisch.
+
+        Returns (doc, auto_sorted).
+        Auto-Sortierung nur wenn: Auto-Modus AN + bekannter Absender (hat Template)
+        + Konfidenz >= Schwellwert.
+        """
+        doc = await self.process_document(doc)
+
+        auto_mode = self.cfg.get("auto_mode", False)
+        if not auto_mode:
+            return doc, False
+
+        if doc.status != DocumentStatus.REVIEW or not doc.extraction:
+            return doc, False
+
+        if not doc.template_id:
+            return doc, False
+
+        threshold = self.cfg.get("auto_confidence_threshold", 0.9)
+        overall = doc.extraction.confidence.get("overall", 0)
+        if overall < threshold:
+            self.db.add_history(
+                doc.id, "auto_skipped",
+                f"Konfidenz {overall:.0%} < Schwellwert {threshold:.0%} — in Inbox"
+            )
+            return doc, False
+
+        result = self.confirm_and_sort(doc)
+        if result:
+            self.db.add_history(doc.id, "auto_sorted",
+                                f"Auto-sortiert nach: {result}")
+            return doc, True
+
+        return doc, False
 
     def confirm_and_sort(self, doc: Document) -> str | None:
         """Bestaetigt Extraktion, erstellt Template und sortiert die Datei."""
