@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
+from pathlib import Path
 
 from nicegui import run as nicegui_run
 from nicegui import ui
 
 from core import config
 from core.ocr_engine import is_available, is_german_ocr_available, is_model_loaded, preload_model
+from core.watchdog_service import watchdog_service
 from ui import design
 
 
@@ -19,6 +21,42 @@ def build_settings(app_state: dict) -> None:
     cfg = config.get()
 
     design.section_header("Einstellungen", "settings")
+
+    # --- Config-Warnungen ---
+    _build_config_warnings(cfg)
+
+    # --- Watchdog-Status ---
+    with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
+        with ui.row().classes('items-center justify-between w-full mb-2'):
+            with ui.row().classes('items-center gap-2'):
+                ui.label('Ordner-Überwachung').classes(f'text-sm font-semibold {design.TEXT}')
+                ui.badge('Watchdog', color='grey-6').props('rounded')
+
+        @ui.refreshable
+        def watchdog_status():
+            watched = watchdog_service.get_watched_folders()
+            if watchdog_service.is_running and watched:
+                with ui.row().classes('items-center gap-2 mb-2'):
+                    ui.icon('fiber_manual_record', size='xs').classes('text-[#22c55e]')
+                    ui.label(f'Aktiv — {len(watched)} Ordner überwacht').classes(f'text-xs {design.TEXT_SEC}')
+                for p in watched:
+                    ui.label(p).classes(f'text-xs font-mono {design.TEXT_MUTED_CLS} ml-5')
+            else:
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('fiber_manual_record', size='xs').classes(f'text-[{design.MUTED}]')
+                    ui.label('Inaktiv — keine Ordner konfiguriert').classes(f'text-xs {design.TEXT_SEC}')
+
+        watchdog_status()
+        app_state["refresh_watchdog_status"] = watchdog_status.refresh
+
+        async def restart_watchdog():
+            current_cfg = config.get()
+            watchdog_service.restart(current_cfg.get("input_folders", []))
+            watchdog_status.refresh()
+            design.notify_success("Watchdog neu gestartet")
+
+        ui.button('Neu starten', icon='refresh', on_click=restart_watchdog) \
+            .props('flat no-caps color=primary').classes('mt-2')
 
     # --- Auto-Modus ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
@@ -30,6 +68,25 @@ def build_settings(app_state: dict) -> None:
             auto_switch = ui.switch(value=cfg.get("auto_mode", False)) \
                 .props('color=blue-5')
             auto_switch.on('change', lambda e: _update_auto_mode(e.value))
+
+        ui.separator().classes(f'my-3 {design.BORDER}')
+        ui.label('Konfidenz-Schwellwert').classes(f'text-xs {design.TEXT_SEC} mb-1')
+        ui.label('Dokumente unterhalb dieser Schwelle gehen immer in die Inbox.') \
+            .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-2')
+        threshold_val = cfg.get("auto_confidence_threshold", 0.9)
+        threshold_label = ui.label(f'{threshold_val:.0%}').classes(f'text-xs font-mono {design.TEXT_ACCENT}')
+
+        def _on_threshold_change(e):
+            val = float(e.value) / 100
+            threshold_label.set_text(f'{val:.0%}')
+            c = config.get()
+            c["auto_confidence_threshold"] = val
+            config.save()
+
+        ui.slider(min=50, max=100, step=5, value=int(threshold_val * 100)) \
+            .props('color=blue-5 label-always') \
+            .classes('w-full mt-1') \
+            .on('change', _on_threshold_change)
 
     # --- Input-Ordner ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
@@ -411,3 +468,29 @@ def _update_german_ocr(key: str, value) -> None:
         cfg["german_ocr"] = {}
     cfg["german_ocr"][key] = value
     config.save()
+
+
+def _build_config_warnings(cfg: dict) -> None:
+    """Zeigt Warnungen für ungültige Konfigurationswerte."""
+    warnings = []
+
+    for folder in cfg.get("input_folders", []):
+        p = Path(folder.get("path", ""))
+        if folder.get("enabled", True) and not p.exists():
+            warnings.append(f"Eingabe-Ordner nicht gefunden: {p}")
+
+    output_path = Path(cfg.get("output", {}).get("base_path", ""))
+    if output_path and not output_path.exists():
+        warnings.append(f"Ausgabe-Ordner nicht gefunden: {output_path}")
+
+    if not warnings:
+        return
+
+    with ui.card().classes(
+        f'border border-[{design.WARNING}44] bg-[{design.WARNING}11] rounded-xl p-4 w-full mb-4'
+    ).props('flat'):
+        with ui.row().classes('items-center gap-2 mb-2'):
+            ui.icon('warning', size='sm').classes(f'text-[{design.WARNING}]')
+            ui.label('Konfigurationswarnungen').classes(f'text-sm font-semibold text-[{design.WARNING}]')
+        for msg in warnings:
+            ui.label(f'• {msg}').classes(f'text-xs {design.TEXT_SEC}')

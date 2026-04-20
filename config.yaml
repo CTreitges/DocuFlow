@@ -16,6 +16,8 @@ output:
 
 # Auto-Sortierung (Default: AUS fuer Testphase)
 auto_mode: false
+# Konfidenz-Schwellwert für Auto-Sortierung (0.0–1.0)
+auto_confidence_threshold: 0.9
 # OCR primär: german-ocr (lokal, auf deutschen Rechnungen trainiert)
 german_ocr:
   enabled: true
