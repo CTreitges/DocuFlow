@@ -1,4 +1,4 @@
-"""DocuFlow Inbox-Seite — Neue Dokumente sichten, verarbeiten, bestaetigen."""
+"""DocuFlow Inbox-Seite — Neue Dokumente sichten, verarbeiten, bestätigen."""
 
 from __future__ import annotations
 
@@ -84,7 +84,8 @@ def build_inbox(app_state: dict) -> None:
                          'cellStyle': {'fontWeight': '500'}},
                         {'headerName': 'Status', 'field': 'status', 'width': 100,
                          'cellStyle': {
-                             'color': 'expression(value == "Review" ? "#60a5fa" : value == "Fehler" ? "#f87171" : "")'
+                             'color': 'expression(value == "Review" ? "#60a5fa" : '
+                                      'value == "Fehler" ? "#f87171" : "")'
                          }},
                         {'headerName': 'Absender', 'field': 'sender', 'flex': 1},
                         {'headerName': 'Datum', 'field': 'date', 'width': 115},
@@ -107,7 +108,6 @@ def build_inbox(app_state: dict) -> None:
             doc_table()
             app_state["refresh_inbox"] = doc_table.refresh
 
-            # Detail-Bereich direkt unter der Tabelle im selben Tab
             detail_container = ui.column().classes('w-full mt-2')
             app_state["inbox_detail"] = detail_container
 
@@ -236,14 +236,15 @@ def _show_detail(doc_id: int, app_state: dict) -> None:
         with ui.card().classes(
             f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-5 w-full'
         ):
-            # Header
             with ui.row().classes('items-center justify-between w-full mb-4'):
                 with ui.column().classes('gap-0'):
                     ui.label(doc.file_name).classes(f'text-base font-semibold {design.TEXT}')
                     ui.label(doc.file_path).classes(f'text-xs {design.TEXT_MUTED_CLS}')
                 design.status_badge(doc.status.value)
 
-            if doc.extraction:
+            if doc.status == DocumentStatus.ERROR:
+                _build_error_view(doc, app_state)
+            elif doc.extraction:
                 _build_extraction_view(doc, app_state)
             else:
                 with ui.column().classes('gap-3'):
@@ -265,29 +266,114 @@ def _show_detail(doc_id: int, app_state: dict) -> None:
                             .props('no-caps flat color=grey-5')
 
 
+def _build_error_view(doc, app_state: dict) -> None:
+    """Zeigt Fehler-Details und Retry-Button."""
+    db = app_state["db"]
+    history = db.get_history_filtered("alles", limit=20)
+    error_detail = ""
+    for entry in history:
+        if entry.get("document_id") == doc.id and entry.get("action") == "error":
+            error_detail = entry.get("details", "")
+            break
+
+    with ui.column().classes('gap-3'):
+        with ui.card().classes(
+            f'border border-[{design.ERROR}44] bg-[{design.ERROR}0d] rounded-xl p-3 w-full'
+        ).props('flat'):
+            with ui.row().classes('items-center gap-2 mb-1'):
+                ui.icon('error_outline', size='sm').classes(f'text-[{design.ERROR}]')
+                ui.label('Verarbeitungsfehler').classes(f'text-sm font-semibold text-[{design.ERROR}]')
+            if error_detail:
+                ui.label(error_detail).classes(f'text-xs {design.TEXT_SEC} font-mono')
+
+        async def _retry():
+            processor = app_state["processor"]
+            doc.status = DocumentStatus.NEW
+            db.update_document(doc)
+            db.add_history(doc.id, "retry", "Erneuter Verarbeitungsversuch")
+            await processor.process_document(doc)
+            _show_detail(doc.id, app_state)
+            fn = app_state.get("refresh_inbox")
+            if fn:
+                fn()
+
+        with ui.row().classes('gap-2'):
+            ui.button('Nochmal versuchen', icon='refresh', on_click=_retry) \
+                .props('no-caps color=warning')
+            ui.button('Ignorieren', icon='do_not_disturb',
+                      on_click=lambda: _ignore_document(doc.id, app_state)) \
+                .props('no-caps flat color=grey-5')
+
+
 def _build_extraction_view(doc, app_state: dict) -> None:
     ext = doc.extraction
     if not ext:
         return
 
-    with ui.grid(columns=2).classes('w-full gap-x-4 gap-y-2 mb-4'):
-        _confidence_field("Absender", ext.sender, ext.confidence.get("sender", 0))
-        _confidence_field("Datum", str(ext.date or ""), ext.confidence.get("date", 0))
-        _confidence_field("Rechnungsnr.", ext.invoice_number,
-                          ext.confidence.get("invoice_number", 0))
-        _confidence_field(
+    db = app_state["db"]
+    processor = app_state["processor"]
+
+    def _save_field(field: str, new_value: str) -> None:
+        """Speichert Feld-Korrektur und aktualisiert Template."""
+        from datetime import date as dt_date
+        if field == "sender":
+            ext.sender = new_value
+        elif field == "invoice_number":
+            ext.invoice_number = new_value
+        elif field == "date":
+            try:
+                ext.date = dt_date.fromisoformat(new_value)
+            except ValueError:
+                pass
+        elif field == "total_amount":
+            try:
+                ext.total_amount = float(new_value.replace(",", ".").replace("€", "").strip())
+            except ValueError:
+                pass
+        elif field == "iban":
+            ext.iban = new_value
+        elif field == "customer_number":
+            ext.customer_number = new_value
+        elif field == "invoice_number":
+            ext.invoice_number = new_value
+
+        db.update_document(doc)
+        db.add_history(doc.id, "correction", f"Feld '{field}' korrigiert: {new_value}")
+
+        if ext.sender:
+            from core import template_generator
+            tpl_path = processor.cfg.get("templates", {}).get("path", "./templates")
+            tpl = template_generator.generate_template(ext, ext.raw_text)
+            template_generator.save_template(tpl, tpl_path)
+            processor.reload_templates()
+
+    with ui.grid(columns=2).classes('w-full gap-x-4 gap-y-3 mb-4'):
+        _editable_field("Absender", ext.sender, ext.confidence.get("sender", 0),
+                        lambda v: _save_field("sender", v))
+        _editable_field("Datum",
+                        ext.date.isoformat() if ext.date else "",
+                        ext.confidence.get("date", 0),
+                        lambda v: _save_field("date", v))
+        _editable_field("Rechnungsnr.", ext.invoice_number,
+                        ext.confidence.get("invoice_number", 0),
+                        lambda v: _save_field("invoice_number", v))
+        _editable_field(
             "Betrag",
             f"{ext.total_amount:.2f} {ext.currency}" if ext.total_amount else "",
             ext.confidence.get("total_amount", 0),
+            lambda v: _save_field("total_amount", v),
         )
-        _confidence_field("MwSt-Satz", f"{ext.vat_rate}%" if ext.vat_rate else "", 0)
-        _confidence_field("IBAN", ext.iban, 0)
-        _confidence_field("Kundennr.", ext.customer_number, 0)
-        _confidence_field("Zahlungsziel", str(ext.due_date or ""), 0)
-        _confidence_field("Dokumenttyp", ext.document_type.value, 0)
+        _editable_field("MwSt-Satz", f"{ext.vat_rate}%" if ext.vat_rate else "", 0)
+        _editable_field("IBAN", ext.iban, 0, lambda v: _save_field("iban", v))
+        _editable_field("Kundennr.", ext.customer_number, 0,
+                        lambda v: _save_field("customer_number", v))
+        _editable_field("Zahlungsziel", str(ext.due_date or ""), 0)
+        _editable_field("Dokumenttyp", ext.document_type.value, 0)
 
     if ext.line_items:
-        ui.label('Positionen').classes(f'text-xs font-semibold {design.TEXT_MUTED_CLS} uppercase tracking-wider mb-1')
+        ui.label('Positionen').classes(
+            f'text-xs font-semibold {design.TEXT_MUTED_CLS} uppercase tracking-wider mb-1'
+        )
         items_data = [
             {"#": i + 1, "beschreibung": item.description,
              "menge": item.quantity or "", "gesamt": item.total or ""}
@@ -307,7 +393,6 @@ def _build_extraction_view(doc, app_state: dict) -> None:
 
     with ui.row().classes('gap-2'):
         def do_confirm():
-            processor = app_state["processor"]
             result = processor.confirm_and_sort(doc)
             if result:
                 design.notify_success(f"Sortiert: {result}")
@@ -316,6 +401,9 @@ def _build_extraction_view(doc, app_state: dict) -> None:
             fn = app_state.get("refresh_inbox")
             if fn:
                 fn()
+            fn2 = app_state.get("refresh_stats")
+            if fn2:
+                fn2()
             c = app_state.get("inbox_detail")
             if c:
                 c.clear()
@@ -330,22 +418,68 @@ def _build_extraction_view(doc, app_state: dict) -> None:
             .props('no-caps flat color=grey-5')
 
 
-def _confidence_field(label: str, value: str, confidence: float) -> None:
-    if confidence >= 0.8:
-        color = design.SUCCESS
-    elif confidence >= 0.5:
-        color = design.WARNING
+def _editable_field(label: str, value: str, confidence: float,
+                    on_save=None) -> None:
+    """Zeigt ein Extraktions-Feld mit Confidence-Badge und optionaler Inline-Bearbeitung."""
+    if confidence >= 0.9:
+        badge_color = design.SUCCESS
+        badge_text = f"{confidence:.0%}"
+    elif confidence >= 0.7:
+        badge_color = design.WARNING
+        badge_text = f"{confidence:.0%}"
     elif confidence > 0:
-        color = design.ERROR
+        badge_color = design.ERROR
+        badge_text = f"{confidence:.0%}"
     else:
-        color = design.MUTED
+        badge_color = design.MUTED
+        badge_text = ""
 
-    with ui.column().classes('gap-0'):
-        with ui.row().classes('items-center gap-1'):
+    with ui.column().classes('gap-0.5'):
+        with ui.row().classes('items-center gap-1 mb-0.5'):
             ui.label(label).classes(f'text-xs {design.TEXT_MUTED_CLS}')
-            if confidence > 0:
-                ui.icon('circle', size='8px').classes(f'text-[{color}]')
-        ui.label(value or '—').classes(f'text-sm {design.TEXT}')
+            if badge_text:
+                ui.label(badge_text) \
+                    .classes('text-[10px] font-mono px-1 py-0 rounded leading-4') \
+                    .style(
+                        f'background: {badge_color}22; color: {badge_color}; '
+                        f'border: 1px solid {badge_color}44'
+                    )
+
+        if on_save:
+            display_row = ui.row().classes('items-center gap-1')
+            with display_row:
+                value_label = ui.label(value or '—').classes(f'text-sm {design.TEXT}')
+                edit_btn = ui.icon('edit', size='xs') \
+                    .classes(f'cursor-pointer opacity-40 hover:opacity-100 {design.TEXT_MUTED_CLS}')
+
+            edit_row = ui.row().classes('items-center gap-1 w-full').style('display: none')
+            with edit_row:
+                edit_input = design.dark_input('', value=value or '') \
+                    .classes('flex-grow').props('dense')
+
+                def _save():
+                    new_val = edit_input.value
+                    on_save(new_val)
+                    value_label.set_text(new_val or '—')
+                    edit_row.style('display: none')
+                    display_row.style('display: flex')
+
+                def _cancel():
+                    edit_row.style('display: none')
+                    display_row.style('display: flex')
+
+                def _show_edit():
+                    display_row.style('display: none')
+                    edit_row.style('display: flex')
+                    edit_input.set_value(value_label.text if value_label.text != '—' else '')
+
+                edit_btn.on('click', _show_edit)
+                ui.button(icon='check', on_click=_save) \
+                    .props('flat dense round size=xs color=positive')
+                ui.button(icon='close', on_click=_cancel) \
+                    .props('flat dense round size=xs color=grey-5')
+        else:
+            ui.label(value or '—').classes(f'text-sm {design.TEXT}')
 
 
 def _avg_confidence(ext) -> str:
