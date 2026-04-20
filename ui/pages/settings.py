@@ -304,6 +304,7 @@ def build_settings(app_state: dict) -> None:
         with ui.row().classes('items-center gap-2 mb-2'):
             ui.label('Ollama').classes(f'text-sm font-semibold {design.TEXT}')
             ui.badge('Fallback', color='grey-6').props('rounded')
+            ollama_status_badge = ui.badge('Prüfe...', color='grey-6').props('rounded')
 
         ui.label('Wird verwendet wenn German-OCR deaktiviert ist oder fehlschlägt.') \
             .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-2')
@@ -331,6 +332,21 @@ def build_settings(app_state: dict) -> None:
 
         ui.button('Verbindung testen', icon='wifi_tethering', on_click=check_ocr) \
             .props('flat no-caps color=primary').classes('mt-2')
+
+    async def _check_ollama_status():
+        try:
+            cfg = config.get()
+            url = cfg.get('ollama', {}).get('url', 'http://localhost:11434')
+            model = cfg.get('ollama', {}).get('model', 'minicpm-v')
+            loop = asyncio.get_running_loop()
+            available = await loop.run_in_executor(None, lambda: is_available(url, model))
+            ollama_status_badge.set_text('Verbunden' if available else 'Offline')
+            ollama_status_badge.props(f'color={"positive" if available else "negative"}')
+        except Exception:
+            ollama_status_badge.set_text('Fehler')
+            ollama_status_badge.props('color=negative')
+
+    asyncio.create_task(_check_ollama_status())
 
     # --- Datenbank zurücksetzen ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
