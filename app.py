@@ -7,14 +7,17 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from nicegui import app as nicegui_app
 from nicegui import ui
 
 from core import config
 from core.database import Database
+from core.models import Document, DocumentStatus
 from core.processor import Processor
 from core.rules_store import load_rules
+from core.watchdog_service import watchdog_service
 from ui import design
 from ui.pages.dashboard import build_dashboard
 from ui.pages.inbox import build_inbox
@@ -27,10 +30,14 @@ cfg = config.load()
 db = Database(cfg.get("database", {}).get("path", "./data/docuflow.db"))
 db.connect()
 
+rules = load_rules()
+processor = Processor(db)
+processor.set_rules(rules)
+
 
 @nicegui_app.on_startup
-async def _start_ollama() -> None:
-    """Startet Ollama im Hintergrund falls noch nicht laufend."""
+async def _start_services() -> None:
+    """Startet Ollama und Watchdog im Hintergrund."""
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         subprocess.Popen(
@@ -40,17 +47,20 @@ async def _start_ollama() -> None:
             creationflags=flags,
         )
     except FileNotFoundError:
-        pass  # Ollama nicht installiert — kein Fehler
+        pass
+
+    watchdog_service.start(cfg.get("input_folders", []))
+
+
+@nicegui_app.on_shutdown
+async def _stop_services() -> None:
+    watchdog_service.stop()
 
 
 @ui.page("/")
 def main_page():
     ui.dark_mode(True)
     design.apply_theme()
-
-    rules = load_rules()
-    processor = Processor(db)
-    processor.set_rules(rules)
 
     app_state = {
         "db": db,
@@ -59,7 +69,6 @@ def main_page():
         "cfg": cfg,
     }
 
-    # Navigations-Buttons merken fuer aktive Hervorhebung
     nav_buttons: dict[str, ui.button] = {}
 
     # --- Header ---
@@ -137,9 +146,42 @@ def main_page():
             with ui.tab_panel("debug").classes("p-0"):
                 build_debug(app_state)
 
+    # --- Watchdog-Timer: verarbeitet neue Dateien aus dem Watchdog ---
+    async def _watchdog_tick() -> None:
+        new_files = watchdog_service.drain_new_files()
+        if not new_files:
+            return
+
+        auto_sorted_count = 0
+
+        for file_path in new_files:
+            if db.document_exists(file_path):
+                continue
+            path = Path(file_path)
+            doc = Document(
+                file_path=file_path,
+                file_name=path.name,
+                status=DocumentStatus.NEW,
+            )
+            doc.id = db.add_document(doc)
+            db.add_history(doc.id, "scan", f"Watchdog: {path.name}")
+
+            doc, was_sorted = await processor.process_and_maybe_auto_sort(doc)
+            if was_sorted:
+                auto_sorted_count += 1
+
+        if auto_sorted_count:
+            design.notify_success(f"Auto-sortiert: {auto_sorted_count} Dokument(e)")
+
+        for key in ("refresh_inbox", "refresh_stats", "refresh_documents", "refresh_history"):
+            fn = app_state.get(key)
+            if fn:
+                fn()
+
+    ui.timer(3.0, _watchdog_tick)
+
 
 def _update_nav_active(active_tab: str, nav_buttons: dict[str, ui.button]) -> None:
-    """Aktualisiert die Hervorhebung der Sidebar-Buttons."""
     for tab_name, btn in nav_buttons.items():
         if tab_name == active_tab:
             btn.classes(replace=f"w-full justify-start rounded-lg px-3 py-2 text-sm font-medium "
