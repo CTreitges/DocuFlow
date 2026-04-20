@@ -83,10 +83,10 @@ def build_inbox(app_state: dict) -> None:
                         {'headerName': 'Dateiname', 'field': 'name', 'flex': 2,
                          'cellStyle': {'fontWeight': '500'}},
                         {'headerName': 'Status', 'field': 'status', 'width': 100,
-                         'cellStyle': {
-                             'color': 'expression(value == "Review" ? "#60a5fa" : '
-                                      'value == "Fehler" ? "#f87171" : "")'
-                         }},
+                         ':cellStyle': "params => { "
+                             "if (params.value === 'Review') return { color: '#60a5fa' }; "
+                             "if (params.value === 'Fehler') return { color: '#f87171' }; "
+                             "return {}; }"},
                         {'headerName': 'Absender', 'field': 'sender', 'flex': 1},
                         {'headerName': 'Datum', 'field': 'date', 'width': 115},
                         {'headerName': 'Betrag', 'field': 'amount', 'width': 120,

@@ -62,7 +62,7 @@ class Processor:
             return doc
 
         # Stufe 1: Text-Extraktion (in Thread damit Event-Loop frei bleibt)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         text = ""
         has_text = await loop.run_in_executor(None, pdf_reader.has_text, file_path)
         if has_text:

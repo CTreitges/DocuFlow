@@ -218,7 +218,7 @@ def build_settings(app_state: dict) -> None:
                     capture_output=True, text=True,
                 )
 
-            proc = await asyncio.get_event_loop().run_in_executor(None, _run_pip)
+            proc = await asyncio.get_running_loop().run_in_executor(None, _run_pip)
             action_spinner.classes(add='hidden')
 
             for line in (proc.stdout + proc.stderr).splitlines():
@@ -251,7 +251,7 @@ def build_settings(app_state: dict) -> None:
                     capture_output=True, text=True, env=env,
                 )
 
-            proc = await asyncio.get_event_loop().run_in_executor(None, _run)
+            proc = await asyncio.get_running_loop().run_in_executor(None, _run)
             action_spinner.classes(add='hidden')
 
             for line in (proc.stdout + proc.stderr).splitlines():
@@ -301,11 +301,9 @@ def build_settings(app_state: dict) -> None:
 
     # --- Ollama (Fallback) ---
     with ui.card().classes(f'{design.BG_SURFACE} {design.BORDER} rounded-xl p-4 w-full mb-4').props('flat'):
-        with ui.row().classes('items-center justify-between w-full mb-2'):
-            with ui.row().classes('items-center gap-2'):
-                ui.label('Ollama').classes(f'text-sm font-semibold {design.TEXT}')
-                ui.badge('Fallback', color='grey-6').props('rounded')
-            _ocr_status_badge(cfg)
+        with ui.row().classes('items-center gap-2 mb-2'):
+            ui.label('Ollama').classes(f'text-sm font-semibold {design.TEXT}')
+            ui.badge('Fallback', color='grey-6').props('rounded')
 
         ui.label('Wird verwendet wenn German-OCR deaktiviert ist oder fehlschlägt.') \
             .classes(f'text-xs {design.TEXT_MUTED_CLS} mb-2')
@@ -352,8 +350,12 @@ def build_settings(app_state: dict) -> None:
                         fn()
                 design.notify_success("Datenbank geleert")
 
-            ui.button('Alles löschen', icon='delete_forever', on_click=do_clear) \
-                .props('no-caps color=negative outline')
+            ui.button('Alles löschen', icon='delete_forever',
+                      on_click=lambda: design.confirm_dialog(
+                          'Datenbank löschen?',
+                          'Alle Dokumente und History-Einträge werden unwiderruflich gelöscht.',
+                          do_clear,
+                      )).props('no-caps color=negative outline')
 
 
 def _open_folder_dialog() -> str | None:

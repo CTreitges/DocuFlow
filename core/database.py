@@ -99,20 +99,21 @@ class Database:
     def get_history_filtered(self, filter_type: str = "alles", limit: int = 100) -> list[dict]:
         """History gefiltert: 'heute', 'woche' oder 'alles'."""
         from datetime import date, timedelta
+        params: list = []
         where = ""
         if filter_type == "heute":
-            today = date.today().isoformat()
-            where = f" AND h.timestamp >= '{today}'"
+            where = " AND h.timestamp >= ?"
+            params.append(date.today().isoformat())
         elif filter_type == "woche":
-            since = (date.today() - timedelta(days=7)).isoformat()
-            where = f" AND h.timestamp >= '{since}'"
+            where = " AND h.timestamp >= ?"
+            params.append((date.today() - timedelta(days=7)).isoformat())
+        params.append(limit)
 
         rows = self.conn.execute(
-            f"""SELECT h.*, d.file_name FROM history h
-               JOIN documents d ON h.document_id = d.id
-               WHERE 1=1{where}
-               ORDER BY h.timestamp DESC LIMIT ?""",
-            (limit,),
+            f"SELECT h.*, d.file_name FROM history h "
+            f"JOIN documents d ON h.document_id = d.id "
+            f"WHERE 1=1{where} ORDER BY h.timestamp DESC LIMIT ?",
+            params,
         ).fetchall()
         return [dict(r) for r in rows]
 
