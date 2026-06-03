@@ -1,5 +1,12 @@
 # DocuFlow - Intelligentes Dokumenten-Management
 
+> **Hinweis (2026-06-03):** Dieses Dokument ist der **ursprüngliche Entwurf**. Die
+> OCR-Sektion unten (GLM-OCR) beschreibt das *Original-Design* und wurde **nicht**
+> übernommen. Kanonisch im Code/`config.yaml`/README ist: **german-ocr
+> (`Keyvan/german-ocr-turbo`) als Primär-Modell + `minicpm-v` (Ollama) als
+> Fallback**. `glm-ocr` (zai-org, 0.9B) bleibt eine valide Alternative, ist aber
+> nicht verdrahtet. Aktueller Stand: siehe `README.md`.
+
 ## Context
 
 Ziel ist ein lokales Tool, das Rechnungen (und später andere Dokumente) aus Ordnern liest, relevante Daten extrahiert, und die Dateien automatisch sortiert/umbenennt. Das Tool soll erweiterbar sein und ein UI haben. PDF-Parsing soll KI-gestützt mit lokalem Fallback auf Muster erfolgen.

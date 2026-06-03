@@ -33,7 +33,7 @@ Intelligentes Dokumenten-Management-Tool: PDFs/Bilder → OCR → Template-Match
 | `ui/pages/settings.py` | Einstellungen: Ordner, Auto-Modus, Ollama-Config |
 | `ui/pages/templates_page.py` | Template-Verwaltung |
 | `core/processor.py` | Dreistufige Verarbeitungs-Pipeline |
-| `core/ocr_engine.py` | GLM-OCR via Ollama |
+| `core/ocr_engine.py` | OCR: german-ocr (Keyvan/german-ocr-turbo) primär + Ollama (minicpm-v) Fallback |
 | `core/pdf_reader.py` | PDF Text-Extraktion (PyMuPDF) |
 | `core/template_matcher.py` | Muster-basierte Extraktion bekannter Absender |
 | `core/template_generator.py` | Auto-Template aus bestaetigter KI-Extraktion |

@@ -6,6 +6,7 @@ import base64
 import json
 import re
 import tempfile
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import ollama
 
 from core import pdf_reader
 from core.models import DocumentType, ExtractionResult, LineItem
+from core.number_parser import parse_amount
 
 
 # ---------------------------------------------------------------------------
@@ -48,17 +50,25 @@ Rules:
 # ---------------------------------------------------------------------------
 _german_ocr_instance = None
 _german_ocr_backend_loaded: str | None = None
+# Schuetzt die Lazy-Init gegen paralleles Doppel-Laden (Watchdog-Worker-Thread +
+# Request-Threadpool greifen ggf. gleichzeitig zu -> sonst doppelter VRAM).
+_german_ocr_lock = threading.Lock()
 
 
 def _get_german_ocr(backend: str = "ollama", n_gpu_layers: int = -1):
     global _german_ocr_instance, _german_ocr_backend_loaded
-    if _german_ocr_instance is None or _german_ocr_backend_loaded != backend:
-        from german_ocr import GermanOCR  # type: ignore
-        if backend == "llamacpp":
-            _german_ocr_instance = GermanOCR(backend=backend, n_gpu_layers=n_gpu_layers)
-        else:
-            _german_ocr_instance = GermanOCR(backend=backend)
-        _german_ocr_backend_loaded = backend
+    # Schneller Pfad ohne Lock, wenn das passende Modell bereits geladen ist.
+    if _german_ocr_instance is not None and _german_ocr_backend_loaded == backend:
+        return _german_ocr_instance
+    with _german_ocr_lock:
+        # Double-Checked: waehrend des Wartens kann ein anderer Thread geladen haben.
+        if _german_ocr_instance is None or _german_ocr_backend_loaded != backend:
+            from german_ocr import GermanOCR  # type: ignore
+            if backend == "llamacpp":
+                _german_ocr_instance = GermanOCR(backend=backend, n_gpu_layers=n_gpu_layers)
+            else:
+                _german_ocr_instance = GermanOCR(backend=backend)
+            _german_ocr_backend_loaded = backend
     return _german_ocr_instance
 
 
@@ -433,18 +443,13 @@ def _parse_german_markdown(text: str) -> ExtractionResult:
 
 
 def _safe_float_de(val: str) -> float | None:
-    """Konvertiert deutsches Zahlenformat ('1.234,56') in float."""
-    if not val:
-        return None
-    raw = val.strip().replace("€", "").replace(" ", "")
-    if "." in raw and "," in raw:
-        raw = raw.replace(".", "").replace(",", ".")
-    elif "," in raw:
-        raw = raw.replace(",", ".")
-    try:
-        return float(raw)
-    except ValueError:
-        return None
+    """Konvertiert deutsches Zahlenformat ('1.234,56') in float.
+
+    Duenne Weiterleitung an core.number_parser.parse_amount (zentrale Logik) —
+    alle bestehenden Aufrufstellen bleiben unveraendert und profitieren vom
+    korrekten Tausenderpunkt-Handling ('1.234' -> 1234, nicht 1.234).
+    """
+    return parse_amount(val)
 
 
 # ---------------------------------------------------------------------------
