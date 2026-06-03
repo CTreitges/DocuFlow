@@ -42,6 +42,10 @@ export const api = {
   rules: () => req('/api/rules'),
   blankRule: () => req('/api/rules/blank'),
   saveRules: (rules) => req('/api/rules', { method: 'PUT', body: JSON.stringify({ rules }) }),
+  createRule: (rule) => req('/api/rules', { method: 'POST', body: JSON.stringify(rule) }),
+  updateRule: (id, rule) => req(`/api/rules/${id}`, { method: 'PUT', body: JSON.stringify(rule) }),
+  deleteRule: (id) => req(`/api/rules/${id}`, { method: 'DELETE' }),
+  reorderRules: (order) => req('/api/rules/reorder', { method: 'POST', body: JSON.stringify({ order }) }),
   rulePreview: (rule, extraction = null) =>
     req('/api/rules/preview', { method: 'POST', body: JSON.stringify({ rule, extraction }) }),
 

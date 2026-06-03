@@ -24,3 +24,9 @@ class ExtractionUpdate(BaseModel):
     """Manuelle Korrektur der extrahierten Felder eines Dokuments."""
 
     extraction: ExtractionResult
+
+
+class ReorderPayload(BaseModel):
+    """Neue Reihenfolge der Regeln (Liste von Regel-IDs, oben = zuerst geprueft)."""
+
+    order: list[str]

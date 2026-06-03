@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
 
@@ -12,7 +13,11 @@ from core.models import ConditionField, ConditionOperator, RuleCondition, SortRu
 _yaml = YAML()
 _yaml.default_flow_style = False
 
-RULES_FILE = Path(__file__).parent.parent / "data" / "rules.yaml"
+# DOCUFLOW_RULES erlaubt eine isolierte Regeldatei (Tests, Live-Demos), ohne die
+# echte data/rules.yaml anzufassen — analog zu DOCUFLOW_DB / DOCUFLOW_CONFIG.
+RULES_FILE = Path(
+    os.environ.get("DOCUFLOW_RULES") or (Path(__file__).parent.parent / "data" / "rules.yaml")
+)
 
 
 def load_rules(path: Path | None = None) -> list[SortRule]:
