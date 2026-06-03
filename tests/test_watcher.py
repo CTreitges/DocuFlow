@@ -48,6 +48,21 @@ def test_watcher_processes_dropped_file(iso_client, make_pdf):
     assert st["recent"] and st["recent"][0]["file"] == "drop.pdf"
 
 
+def test_watch_double_start_is_idempotent(iso_client):
+    """Zweiter Start darf keinen zweiten Observer/Worker erzeugen; Stop ist idempotent."""
+    import threading
+
+    c = iso_client
+    w = c.app.state.docuflow.watcher
+    s1 = w.start()
+    s2 = w.start()
+    assert s1["running"] is True and s2["running"] is True
+    workers = [t for t in threading.enumerate() if t.name == "docuflow-watch" and t.is_alive()]
+    assert len(workers) == 1  # genau ein Worker trotz doppeltem Start
+    assert w.stop()["running"] is False
+    assert w.stop()["running"] is False  # idempotent, kein Fehler
+
+
 def test_watch_scan_now_registers_without_running(iso_client, make_pdf):
     c = iso_client
     make_pdf(c.env.inbox / "neu.pdf", "RECHNUNG\nXY GmbH")

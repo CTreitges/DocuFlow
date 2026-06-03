@@ -46,6 +46,9 @@ class FolderWatcher:
         self._stop = threading.Event()
         self._wakeup = threading.Event()
         self._lock = threading.RLock()
+        # Serialisiert start/stop, damit zwei gleichzeitige Aufrufe nicht zwei
+        # Observer erzeugen oder kollidieren (getrennt vom Status-Lock _lock).
+        self._lifecycle_lock = threading.Lock()
         self._running = False
         self._dirty = False
         self._dirty_at = 0.0
@@ -64,7 +67,11 @@ class FolderWatcher:
             return self._running
 
     def start(self) -> dict:
-        """Startet die Ueberwachung aller aktivierten Input-Ordner (watch=true)."""
+        """Startet die Ueberwachung (thread-sicher gegen doppelten Start)."""
+        with self._lifecycle_lock:
+            return self._start_locked()
+
+    def _start_locked(self) -> dict:
         if self.is_running():
             return self.status()
 
@@ -119,7 +126,11 @@ class FolderWatcher:
         return self.status()
 
     def stop(self) -> dict:
-        """Stoppt die Ueberwachung; laufende Verarbeitung wird sauber beendet."""
+        """Stoppt die Ueberwachung (thread-sicher); laufende Verarbeitung sauber beendet."""
+        with self._lifecycle_lock:
+            return self._stop_locked()
+
+    def _stop_locked(self) -> dict:
         with self._lock:
             if not self._running:
                 return self.status()

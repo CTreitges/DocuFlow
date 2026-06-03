@@ -8,7 +8,7 @@ Extraktion → Prüfung & Korrektur → Sortierung & Umbenennung nach visuellen 
 
 | Schicht | Pfad | Beschreibung |
 |--------|------|--------------|
-| **Core** | `core/` | Unveränderte Python-Logik (PDF, OCR, Templates, Sortierung). Bug-Fixes K1/K2. |
+| **Core** | `core/` | Python-Logik (PDF, OCR, Templates, Sortierung). Bug-Fixes K1/K2. Ordner-Überwachung in `core/watcher.py`. |
 | **Backend** | `backend/` | FastAPI-App (async). Wiederverwendet `core/` als REST-API unter `/api`. |
 | **Frontend** | `frontend/` | Svelte 5 + Vite + Tailwind, dunkles „Utility & Precision"-Design (aus Claude Design, Quelle in `frontend/_design/`). |
 | **Desktop** | `desktop.py` | pywebview-Shell: startet das Backend und öffnet ein natives Fenster (1280×850). |
@@ -48,10 +48,34 @@ uvicorn backend.main:app                    # UI + API auf http://127.0.0.1:8000
 > Ist das Backend nicht erreichbar, zeigt das Frontend **Design-Beispieldaten**
 > (Demo-Modus), damit die Oberfläche nie leer ist.
 
+## Funktionen
+
+- **Dreistufige Extraktion** — Text (PyMuPDF) → Template-Match → OCR (german-ocr/Ollama).
+- **Ordner-Überwachung (Watchdog)** — überwachte Eingangs-Ordner; neue PDFs werden
+  automatisch erkannt und verarbeitet. Live-Status (Start/Stop, aktueller Schritt,
+  Warteschlange) unter *Einstellungen → Ordner-Überwachung*. Kein Autostart (sicher).
+- **OCR-Debug** — wählt ein echtes Dokument, lässt die echte Pipeline laufen und zeigt
+  extrahierte Felder, Konfidenz, Rohtext und die abgeleitete Quelle (Template/OCR/Nur-Text).
+- **Visueller Regel-Editor** — Sortier-Regeln (WANN→WOHIN→WIE BENENNEN) mit Auto-Save
+  (anlegen/ändern/löschen/aktivieren/per Drag&Drop sortieren).
+- **Auto-Sortierung** — bekannte Absender (Template-Match ≥ Schwellwert) werden bei
+  aktivem Auto-Modus ohne manuelle Prüfung einsortiert.
+
+### Umgebungs-Variablen
+
+| Variable | Wirkung |
+|----------|---------|
+| `DOCUFLOW_CONFIG` | Pfad zu einer isolierten `config.yaml` (sonst Projekt-`config.yaml`). |
+| `DOCUFLOW_RULES` | Pfad zu einer isolierten Regeldatei (sonst `data/rules.yaml`). |
+| `DOCUFLOW_DB` | Pfad zur SQLite-DB (überschreibt die Config). |
+| `DOCUFLOW_NO_OLLAMA` | Wenn gesetzt, wird kein Ollama-Daemon gestartet. |
+| `DOCUFLOW_HOST` / `DOCUFLOW_PORT` | Host/Port der Desktop-Shell (`desktop.py`). |
+
 ## Tests
 
 ```bash
-pytest tests/                 # 19 Tests: K1/K2-Regression + API-Smoke
+pytest tests/                 # 34 Tests: K1/K2-Regression, API-Smoke,
+                              # Regel-CRUD, End-to-End-Flow, Watchdog
 ```
 
 ## Behobene Backend-Bugs
