@@ -1,9 +1,18 @@
-nicegui
-pywebview
+# --- Backend (FastAPI) ---
+fastapi
+uvicorn[standard]
+pydantic
+
+# --- Core: PDF / OCR / Templates ---
 pymupdf
 ollama
+german-ocr
 ruamel.yaml
-pydantic
 watchdog
 aiosqlite
-german-ocr
+
+# --- Desktop-Shell ---
+pywebview
+
+# --- Legacy NiceGUI-UI (durch frontend/ (Svelte 5) ersetzt; nur noch fuer app.py) ---
+nicegui

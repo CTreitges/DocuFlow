@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>DocuFlow</title>
+    <style>
+      html, body, #app { height: 100%; }
+      body { margin: 0; background: #0f172a; color: #f1f5f9;
+        font-family: "IBM Plex Sans", system-ui, sans-serif; }
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; gap: 14px;
+        color: #64748b; font-size: 14px; }
+      #boot .s { width: 26px; height: 26px; border-radius: 50%;
+        border: 2.5px solid rgba(255,255,255,.12); border-top-color: #3b82f6;
+        animation: bs .8s linear infinite; }
+      @keyframes bs { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="app"><div id="boot"><div class="s"></div><div>DocuFlow lädt…</div></div></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -48,6 +48,7 @@ def _defaults() -> dict[str, Any]:
         "input_folders": [{"path": "./inbox", "enabled": True, "watch": True}],
         "output": {"base_path": "./sorted"},
         "auto_mode": False,
+        "auto_confidence_threshold": 0.9,
         "ollama": {"url": "http://localhost:11434", "model": "glm-ocr", "timeout": 120},
         "database": {"path": "./data/docuflow.db"},
         "templates": {"path": "./templates"},

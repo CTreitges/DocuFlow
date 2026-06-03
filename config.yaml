@@ -16,6 +16,8 @@ output:
 
 # Auto-Sortierung (Default: AUS fuer Testphase)
 auto_mode: false
+# Auto-Sortierung greift nur wenn Template-Match-Konfidenz >= diesem Wert (0..1)
+auto_confidence_threshold: 0.9
 # OCR primär: german-ocr (lokal, auf deutschen Rechnungen trainiert)
 german_ocr:
   enabled: true

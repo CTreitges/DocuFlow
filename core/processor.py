@@ -73,6 +73,11 @@ class Processor:
             matched_tpl, confidence = template_matcher.match_template(text, self._templates)
             if matched_tpl:
                 extraction = template_matcher.extract_with_template(text, matched_tpl)
+                # K1-Fix: Den Template-Match-Score als autoritative Gesamtkonfidenz
+                # setzen. Zuvor wurde der Score nur in die History geschrieben und
+                # extraction.confidence['overall'] blieb ungesetzt → die
+                # Auto-Sortierung las immer 0 und war damit toter Code.
+                extraction.confidence["overall"] = confidence
                 doc.extraction = extraction
                 doc.template_id = matched_tpl.id
                 doc.status = DocumentStatus.REVIEW
@@ -127,6 +132,43 @@ class Processor:
         doc.processed_at = datetime.now()
         self.db.update_document(doc)
         return doc
+
+    async def process_and_maybe_auto_sort(self, doc: Document) -> tuple[Document, bool]:
+        """Verarbeitet ein Dokument und sortiert es ggf. automatisch.
+
+        Returns (doc, auto_sorted).
+        Auto-Sortierung nur wenn: Auto-Modus AN + bekannter Absender (hat Template)
+        + Konfidenz >= Schwellwert. Der Schwellwert prueft confidence['overall'],
+        das seit dem K1-Fix den echten Template-Match-Score enthaelt.
+        """
+        doc = await self.process_document(doc)
+
+        auto_mode = self.cfg.get("auto_mode", False)
+        if not auto_mode:
+            return doc, False
+
+        if doc.status != DocumentStatus.REVIEW or not doc.extraction:
+            return doc, False
+
+        if not doc.template_id:
+            return doc, False
+
+        threshold = self.cfg.get("auto_confidence_threshold", 0.9)
+        overall = doc.extraction.confidence.get("overall", 0)
+        if overall < threshold:
+            self.db.add_history(
+                doc.id, "auto_skipped",
+                f"Konfidenz {overall:.0%} < Schwellwert {threshold:.0%} — in Inbox"
+            )
+            return doc, False
+
+        result = self.confirm_and_sort(doc)
+        if result:
+            self.db.add_history(doc.id, "auto_sorted",
+                                f"Auto-sortiert nach: {result}")
+            return doc, True
+
+        return doc, False
 
     def confirm_and_sort(self, doc: Document) -> str | None:
         """Bestaetigt Extraktion, erstellt Template und sortiert die Datei."""

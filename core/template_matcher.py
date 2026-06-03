@@ -67,6 +67,10 @@ def extract_with_template(text: str, template: Template) -> ExtractionResult:
         except re.error:
             confidence[field_name] = 0.0
 
+    # 'overall' als Default (Mittel der Feldkonfidenzen). Der Prozessor
+    # ueberschreibt dies mit dem autoritativen Template-Match-Score (K1-Fix),
+    # damit die Auto-Sortierung einen echten Schwellwert prueft statt immer 0.
+    confidence["overall"] = sum(confidence.values()) / len(confidence)
     result.confidence = confidence
     return result
 

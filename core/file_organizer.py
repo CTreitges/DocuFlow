@@ -28,14 +28,22 @@ def evaluate_rules(doc: Document, rules: list[SortRule]) -> SortRule | None:
 
 
 def build_target_path(doc: Document, rule: SortRule) -> Path:
-    """Baut den Zielpfad aus Regel-Platzhaltern."""
+    """Baut den Zielpfad aus Regel-Platzhaltern.
+
+    K2-Sicherheit: Ordner-Segmente stammen aus OCR-Platzhaltern ({absender} etc.)
+    und sind damit nicht vertrauenswuerdig. Jedes Segment wird sanitisiert
+    (entfernt '..' und Pfad-Separatoren), und der finale Pfad wird gegen den
+    Basisordner verankert, damit shutil.move nicht aus dem Zielordner ausbricht.
+    """
     extraction = doc.extraction or ExtractionResult()
     placeholders = _build_placeholders(extraction)
 
-    base = Path(rule.target_base)
+    base_root = Path(rule.target_base)
+    base = base_root
     for subfolder in rule.target_subfolders:
-        resolved = _resolve_template(subfolder, placeholders)
-        base = base / resolved
+        segment = _sanitize_segment(_resolve_template(subfolder, placeholders))
+        if segment:
+            base = base / segment
 
     filename_parts = []
     for part in rule.filename_parts:
@@ -49,7 +57,7 @@ def build_target_path(doc: Document, rule: SortRule) -> Path:
         filename = doc.file_name
 
     filename = _sanitize_filename(filename)
-    return base / filename
+    return _enforce_within_base(base / filename, base_root, filename)
 
 
 def move_file(source: str | Path, target: Path) -> Path:
@@ -71,13 +79,19 @@ def move_file(source: str | Path, target: Path) -> Path:
 def preview_target_path(extraction: ExtractionResult, rule: SortRule) -> str:
     """Erstellt eine Vorschau des Zielpfads (ohne tatsaechlich zu verschieben)."""
     placeholders = _build_placeholders(extraction)
-    base = Path(rule.target_base)
+    base_root = Path(rule.target_base)
+    base = base_root
     for subfolder in rule.target_subfolders:
-        base = base / _resolve_template(subfolder, placeholders)
+        segment = _sanitize_segment(_resolve_template(subfolder, placeholders))
+        if segment:
+            base = base / segment
 
-    filename_parts = [_resolve_template(p, placeholders) for p in rule.filename_parts]
-    filename = "_".join(p for p in filename_parts if p) + ".pdf" if filename_parts else "dokument.pdf"
-    return str(base / _sanitize_filename(filename))
+    filename_parts = [
+        r for r in (_resolve_template(p, placeholders) for p in rule.filename_parts) if r
+    ]
+    filename = "_".join(filename_parts) + ".pdf" if filename_parts else "dokument.pdf"
+    filename = _sanitize_filename(filename)
+    return str(_enforce_within_base(base / filename, base_root, filename))
 
 
 def _matches_conditions(extraction: ExtractionResult, conditions: list[RuleCondition]) -> bool:
@@ -156,8 +170,44 @@ def _resolve_template(template: str, placeholders: dict[str, str]) -> str:
     return result
 
 
+def _sanitize_segment(segment: str) -> str:
+    """Sanitisiert ein einzelnes Ordner-Segment (K2-Schutz).
+
+    Neutralisiert Pfad-Separatoren und '..'-Traversal: ein Segment darf nur
+    EINE Ordnerebene tief sein. '../../etc' wird so zu 'etc', 'a/b' zu 'a_b'.
+    Ungueltige Dateisystem-Zeichen werden durch '_' ersetzt.
+    """
+    parts = re.split(r"[\\/]+", segment)
+    safe_parts = []
+    for part in parts:
+        part = re.sub(r'[<>:"|?*\x00-\x1f]', "_", part)
+        part = part.strip(". ")
+        if part in ("", ".", ".."):
+            continue
+        safe_parts.append(part)
+    return "_".join(safe_parts)
+
+
 def _sanitize_filename(filename: str) -> str:
     """Entfernt ungueltige Zeichen aus Dateinamen."""
     sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
     sanitized = re.sub(r'_+', '_', sanitized)
     return sanitized.strip('_. ')
+
+
+def _enforce_within_base(target: Path, base_root: Path, filename: str) -> Path:
+    """Stellt sicher, dass der Zielpfad innerhalb von base_root bleibt (K2-Schutz).
+
+    Letzte Verteidigungslinie nach der Segment-Sanitisierung: Sollte ein Pfad
+    dennoch aus dem Basisordner ausbrechen, wird die Datei hart direkt unter
+    base_root abgelegt statt an einen beliebigen Ort verschoben.
+    """
+    try:
+        resolved_target = target.resolve()
+        resolved_base = base_root.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return base_root / (_sanitize_filename(filename) or "dokument.pdf")
+
+    if resolved_target == resolved_base or resolved_target.is_relative_to(resolved_base):
+        return target
+    return base_root / (_sanitize_filename(filename) or "dokument.pdf")
