@@ -16,6 +16,7 @@ from core import config
 from core.database import Database
 from core.processor import Processor
 from core.rules_store import load_rules
+from core.watcher import FolderWatcher
 
 
 class AppState:
@@ -29,11 +30,17 @@ class AppState:
         self.processor = Processor(self.db)
         self.rules = load_rules()
         self.processor.set_rules(self.rules)
+        # Ordner-Ueberwachung — bewusst NICHT automatisch gestartet (sicher fuer
+        # die Testphase, vgl. PLAN.md). Der Nutzer startet sie ueber die UI.
+        self.watcher = FolderWatcher(self.processor)
 
     def reload_config(self) -> None:
         self.cfg = config.load()
         # Processor haelt eine eigene Referenz auf das Config-Dict.
         self.processor.cfg = config.get()
+        # Geaenderte Input-Ordner greifen erst nach Neustart des Observers.
+        if self.watcher.is_running():
+            self.watcher.restart()
 
     def reload_rules(self) -> None:
         self.rules = load_rules()
@@ -55,6 +62,7 @@ class AppState:
             pass  # Ollama nicht installiert — kein Fehler
 
     def close(self) -> None:
+        self.watcher.stop()
         self.db.close()
 
 

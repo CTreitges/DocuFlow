@@ -53,4 +53,10 @@ export const api = {
   settings: () => req('/api/settings'),
   saveSettings: (patch) => req('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   resetDatabase: () => req('/api/reset', { method: 'POST' }),
+
+  // Ordner-Überwachung (Watchdog)
+  watchStatus: () => req('/api/watch/status'),
+  watchStart: () => req('/api/watch/start', { method: 'POST' }),
+  watchStop: () => req('/api/watch/stop', { method: 'POST' }),
+  watchScanNow: () => req('/api/watch/scan-now', { method: 'POST' }),
 };

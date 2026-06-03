@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.deps import AppState
-from backend.api import documents, rules, settings, system, templates
+from backend.api import documents, rules, settings, system, templates, watch
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -41,7 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for module in (system, documents, rules, templates, settings):
+for module in (system, documents, rules, templates, settings, watch):
     app.include_router(module.router, prefix="/api")
 
 

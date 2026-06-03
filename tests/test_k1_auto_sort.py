@@ -74,7 +74,10 @@ def _reviewed_doc(tmp_path, overall: float) -> Document:
 
 
 def _patch_process(proc: Processor, doc: Document) -> None:
-    async def _fake(_doc):
+    async def _fake(_doc, on_stage=None):
+        # Signatur spiegelt das echte process_document (optionaler Stage-Callback).
+        if on_stage:
+            on_stage("done")
         return doc
     proc.process_document = _fake  # type: ignore[assignment]
 

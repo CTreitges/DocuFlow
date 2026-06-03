@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -49,19 +50,30 @@ class Processor:
                     new_docs.append(doc)
         return new_docs
 
-    async def process_document(self, doc: Document) -> Document:
-        """Dreistufige Verarbeitung: Text → Template → OCR."""
+    async def process_document(
+        self, doc: Document, on_stage: Callable[[str], None] | None = None
+    ) -> Document:
+        """Dreistufige Verarbeitung: Text → Template → OCR.
+
+        on_stage (optional) erhaelt grobe Stufen-Marker ('text', 'template',
+        'ocr', 'done', 'error') waehrend der Verarbeitung — der Watchdog nutzt
+        das fuer eine ehrliche Live-Fortschrittsanzeige. Default None, damit
+        bestehende API-/Test-Aufrufer unveraendert funktionieren.
+        """
         import asyncio
+        emit = on_stage or (lambda _stage: None)
         doc.status = DocumentStatus.PROCESSING
         self.db.update_document(doc)
 
         file_path = Path(doc.file_path)
         if not file_path.exists():
+            emit("error")
             doc.status = DocumentStatus.ERROR
             self.db.update_document(doc)
             return doc
 
         # Stufe 1: Text-Extraktion (in Thread damit Event-Loop frei bleibt)
+        emit("text")
         loop = asyncio.get_event_loop()
         text = ""
         has_text = await loop.run_in_executor(None, pdf_reader.has_text, file_path)
@@ -70,6 +82,7 @@ class Processor:
 
         # Stufe 2: Template-Matching
         if text:
+            emit("template")
             matched_tpl, confidence = template_matcher.match_template(text, self._templates)
             if matched_tpl:
                 extraction = template_matcher.extract_with_template(text, matched_tpl)
@@ -85,9 +98,11 @@ class Processor:
                 self.db.update_document(doc)
                 self.db.add_history(doc.id, "template_match",
                                     f"Template '{matched_tpl.sender_name}' erkannt (Score: {confidence:.0%})")
+                emit("done")
                 return doc
 
         # Stufe 3: OCR (german-ocr primär, Ollama als Fallback)
+        emit("ocr")
         ollama_cfg = self.cfg.get("ollama", {})
         german_ocr_cfg = self.cfg.get("german_ocr", {})
         use_german_ocr = german_ocr_cfg.get("enabled", True)
@@ -114,8 +129,10 @@ class Processor:
                 self.db.update_document(doc)
                 ocr_label = "German-OCR" if use_german_ocr and ocr_engine.is_german_ocr_available() else "Ollama-OCR"
                 self.db.add_history(doc.id, "ocr", f"{ocr_label} Extraktion abgeschlossen")
+                emit("done")
                 return doc
             except Exception as e:
+                emit("error")
                 doc.status = DocumentStatus.ERROR
                 self.db.update_document(doc)
                 self.db.add_history(doc.id, "error", f"OCR-Fehler: {e}")
@@ -125,15 +142,19 @@ class Processor:
         if text:
             doc.extraction = ExtractionResult(raw_text=text)
             doc.status = DocumentStatus.REVIEW
+            emit("done")
         else:
             doc.status = DocumentStatus.ERROR
             self.db.add_history(doc.id, "error", "Kein Text extrahierbar und OCR nicht verfuegbar")
+            emit("error")
 
         doc.processed_at = datetime.now()
         self.db.update_document(doc)
         return doc
 
-    async def process_and_maybe_auto_sort(self, doc: Document) -> tuple[Document, bool]:
+    async def process_and_maybe_auto_sort(
+        self, doc: Document, on_stage: Callable[[str], None] | None = None
+    ) -> tuple[Document, bool]:
         """Verarbeitet ein Dokument und sortiert es ggf. automatisch.
 
         Returns (doc, auto_sorted).
@@ -141,7 +162,8 @@ class Processor:
         + Konfidenz >= Schwellwert. Der Schwellwert prueft confidence['overall'],
         das seit dem K1-Fix den echten Template-Match-Score enthaelt.
         """
-        doc = await self.process_document(doc)
+        emit = on_stage or (lambda _stage: None)
+        doc = await self.process_document(doc, on_stage=on_stage)
 
         auto_mode = self.cfg.get("auto_mode", False)
         if not auto_mode:
@@ -162,6 +184,7 @@ class Processor:
             )
             return doc, False
 
+        emit("sorting")
         result = self.confirm_and_sort(doc)
         if result:
             self.db.add_history(doc.id, "auto_sorted",
