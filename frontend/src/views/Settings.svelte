@@ -19,7 +19,11 @@
   const dispFromRaw = (r) => (OCR_BACKENDS.find((x) => x[1] === r) || OCR_BACKENDS[0])[0];
   const rawFromDisp = (d) => (OCR_BACKENDS.find((x) => x[0] === d) || OCR_BACKENDS[0])[1];
 
-  let watchdog = $state(true);
+  // Live-Status der echten Ordner-Überwachung (Polling gegen /api/watch/status).
+  let watch = $state({ running: false, folders: [], queue: 0, current: null, recent: [], processed_count: 0, error_count: 0, last_scan: null });
+  let watchBusy = $state(false);
+  const STAGE_LABEL = { start: 'Start', text: 'Text-Extraktion', template: 'Template-Match', ocr: 'OCR-Fallback', sorting: 'Sortieren', done: 'Fertig', error: 'Fehler' };
+
   let autoSort = $state(true);
   let threshold = $state(85);
   let folders = $state(MOCK.INPUT_FOLDERS.map((f) => ({ ...f })));
@@ -41,7 +45,6 @@
   let ollamaConn = $state('idle'); // 'idle' | 'checking' | 'connected' | 'offline'
 
   let warnFolders = $derived(folders.filter((f) => f.active && !f.exists));
-  let activeCount = $derived(folders.filter((f) => f.active).length);
 
   let ocrStatusMeta = $derived({
     'not-installed': { label: 'Nicht installiert', color: C.error, action: 'Installieren', actionIcon: 'play' },
@@ -78,6 +81,36 @@
       toast('info', 'Demo-Daten', 'Backend nicht erreichbar — zeige Design-Beispieldaten.');
       ollamaConn = 'connected';
     }
+  });
+
+  async function refreshWatch() {
+    try { watch = await api.watchStatus(); } catch { /* Backend offline — Status unverändert */ }
+  }
+  async function toggleWatch() {
+    watchBusy = true;
+    try {
+      watch = watch.running ? await api.watchStop() : await api.watchStart();
+      if (watch.running) toast('success', 'Überwachung gestartet', `${watch.folders.length} Ordner werden beobachtet.`);
+      else toast('info', 'Überwachung gestoppt', 'Neue Dateien werden nicht mehr automatisch verarbeitet.');
+    } catch (e) {
+      toast('error', 'Watchdog-Fehler', String(e.message || e));
+    }
+    watchBusy = false;
+  }
+  async function scanWatchNow() {
+    try {
+      const r = await api.watchScanNow();
+      toast('info', 'Scan angestoßen', `${r.new} neue Datei(en) erkannt.`);
+      await refreshWatch();
+    } catch (e) {
+      toast('error', 'Scan fehlgeschlagen', String(e.message || e));
+    }
+  }
+  // Eigener onMount fürs Live-Polling; gibt Cleanup zurück (Intervall stoppen).
+  onMount(() => {
+    refreshWatch();
+    const t = setInterval(refreshWatch, 1500);
+    return () => clearInterval(t);
   });
 
   async function save() {
@@ -177,20 +210,55 @@
 
     <SettingCard title="Ordner-Überwachung" icon="eye">
       {#snippet right()}
-        <Button variant="flat" size="sm" icon="refresh-cw" onclick={() => { watchdog = true; toast('info', 'Watchdog neu gestartet', `${activeCount} Ordner überwacht.`); }}>Neu starten</Button>
+        <div class="flex items-center gap-2">
+          <Button variant="flat" size="sm" icon="search" onclick={scanWatchNow} disabled={!watch.running}>Jetzt scannen</Button>
+          <Button variant={watch.running ? 'flat' : 'primary'} size="sm" icon={watchBusy ? undefined : (watch.running ? 'square' : 'play')} onclick={toggleWatch} disabled={watchBusy}>
+            {#if watchBusy}<span class="flex items-center gap-2"><Icon name="loader" size={14} class="df-spin" />…</span>{:else}{watch.running ? 'Stoppen' : 'Starten'}{/if}
+          </Button>
+        </div>
       {/snippet}
-      <div class="flex items-center gap-2 mb-3">
-        <StatusDot color={watchdog ? C.success : C.muted} pulse={watchdog} />
-        <span class="text-sm whitespace-nowrap" style="color:{watchdog ? C.textPrimary : C.textMuted}">{watchdog ? `Aktiv — ${activeCount} Ordner überwacht` : 'Inaktiv'}</span>
+      <div class="flex items-center gap-2 mb-3 flex-wrap">
+        <StatusDot color={watch.running ? C.success : C.muted} pulse={watch.running} />
+        <span class="text-sm whitespace-nowrap" style="color:{watch.running ? C.textPrimary : C.textMuted}">{watch.running ? `Aktiv — ${watch.folders.length} Ordner überwacht` : 'Inaktiv'}</span>
+        {#if watch.running && watch.queue > 0}
+          <span class="text-[11px] font-mono px-1.5 py-0.5 rounded" style="background:{rgba(C.accent, 0.15)}; color:{C.accent}">{watch.queue} in Warteschlange</span>
+        {/if}
+        {#if watch.running}
+          <span class="text-[11px] font-mono" style="color:{C.textMuted}">· {watch.processed_count} verarbeitet{watch.error_count ? ` · ${watch.error_count} Fehler` : ''}</span>
+        {/if}
       </div>
-      {#if watchdog}
-        <div class="flex flex-col gap-1.5">
-          {#each folders.filter((f) => f.active) as f (f.id)}
-            <div class="text-xs font-mono flex items-center gap-2" style="color:{f.exists ? C.textSecondary : C.error}">
-              <Icon name="folder" size={13} />{f.path}{!f.exists ? ' (fehlt)' : ''}
-            </div>
+
+      {#if watch.running}
+        <div class="flex flex-col gap-1.5 mb-3">
+          {#each (watch.folders.length ? watch.folders : folders.filter((f) => f.active).map((f) => f.path)) as p (p)}
+            <div class="text-xs font-mono flex items-center gap-2" style="color:{C.textSecondary}"><Icon name="folder" size={13} />{p}</div>
           {/each}
         </div>
+
+        {#if watch.current}
+          <div class="rounded-lg p-3 mb-3 df-fade-in" style="background:{C.page}; border:1px solid {rgba(C.accent, 0.3)}">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <Icon name="loader" size={13} class="df-spin" color={C.accent} />
+              <span class="text-xs font-mono truncate" style="color:{C.textPrimary}">{watch.current.file}</span>
+              <span class="text-[11px] px-1.5 py-0.5 rounded" style="background:{rgba(C.accent2, 0.15)}; color:{C.accent2}">{STAGE_LABEL[watch.current.stage] || watch.current.stage}</span>
+            </div>
+            <div class="relative h-1.5 rounded-full overflow-hidden" style="background:{C.elevated}">
+              <div class="df-bar-indeterminate" style="background:{C.accent2}"></div>
+            </div>
+          </div>
+        {/if}
+
+        {#if watch.recent.length}
+          <div class="text-[11px] font-semibold uppercase tracking-wider mb-1.5" style="color:{C.textMuted}">Zuletzt verarbeitet</div>
+          <div class="flex flex-col gap-1">
+            {#each watch.recent.slice(0, 5) as r, i (i)}
+              <div class="flex items-center justify-between gap-2 text-xs font-mono">
+                <span class="truncate" style="color:{C.textSecondary}">{r.file}</span>
+                <span class="shrink-0" style="color:{r.result.startsWith('Fehler') ? C.error : r.result === 'auto-sortiert' ? C.success : C.textMuted}">{r.result} · {r.time}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </SettingCard>
 

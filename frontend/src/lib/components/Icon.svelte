@@ -19,7 +19,7 @@
     'rotate-cw': RotateCw, play: Play, loader: LoaderCircle, 'arrow-right': ArrowRight,
     'alert-triangle': TriangleAlert, box: Box, file: File, eye: Eye, database: Database,
     'hard-drive': HardDrive, server: Server, cpu: Cpu, 'file-code': FileCode2, 'file-search': FileSearch,
-    'corner-down-right': CornerDownRight,
+    'corner-down-right': CornerDownRight, square: Square,
   };
 
   let { name, size = 20, strokeWidth = 2, color, class: klass = '' } = $props();
