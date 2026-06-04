@@ -60,6 +60,27 @@ def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> bool:
     return False
 
 
+class JsApi:
+    """Brücke fürs Frontend: native Dialoge via pywebview.
+
+    Methoden sind im Webview als ``window.pywebview.api.<name>()`` erreichbar und
+    geben ein Promise zurück. Läuft im Webview-Thread (Main), nicht im uvicorn-
+    Daemon-Thread — daher kein Thread-Marshaling nötig.
+    """
+
+    def __init__(self) -> None:
+        self._window = None
+
+    def pick_folder(self):
+        """Öffnet den nativen Ordner-Auswahl-Dialog. Gibt den Pfad oder None zurück."""
+        import webview  # lazy: hält `import desktop` headless/testbar
+
+        if self._window is None:
+            return None
+        result = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        return result[0] if result else None
+
+
 def start_backend(host: str = HOST, port: int = PORT, timeout: float = 20.0) -> str:
     """Startet uvicorn in einem Daemon-Thread und wartet, bis der Port bereit ist.
 
@@ -85,13 +106,16 @@ def main() -> None:
 
     import webview  # lazy — nur für die Desktop-Shell nötig
 
-    webview.create_window(
+    api = JsApi()
+    window = webview.create_window(
         "DocuFlow",
         url,
         width=1280,
         height=850,
         min_size=(960, 640),
+        js_api=api,
     )
+    api._window = window
     webview.start()
 
 

@@ -20,6 +20,17 @@
   let confirm = $state(null);
   let online = $state(true);
   let saveState = $state('idle'); // idle | saving | saved | error
+  let exampleExtraction = $state(null); // echtes Inbox-Beispiel für die Live-Vorschau
+  let canPickFolder = $state(false);    // nativer Ordner-Dialog (nur Desktop-Shell)
+  let presetMenu = $state(false);
+  let presetRoot;
+
+  function detectNative() {
+    canPickFolder = typeof window !== 'undefined' && !!window.pywebview?.api;
+  }
+  function onWinClick(e) {
+    if (presetMenu && presetRoot && !presetRoot.contains(e.target)) presetMenu = false;
+  }
 
   // Entprellte Speicher-Timer pro Regel-ID (Feldedits). Strukturelle Aktionen
   // (anlegen, löschen, aktivieren, sortieren) speichern sofort.
@@ -43,11 +54,21 @@
       toast('info', 'Demo-Daten', 'Backend nicht erreichbar — Änderungen werden nicht gespeichert.');
     }
     initSections(rules);
+    // Echtes Beispiel-Dokument für die Live-Vorschau (sonst Backend-Default).
+    try {
+      const docs = await api.documents();
+      const withExtraction = (docs || []).find((d) => d.extraction);
+      exampleExtraction = withExtraction ? withExtraction.extraction : null;
+    } catch { exampleExtraction = null; }
+    // Nativen Ordner-Dialog erkennen (pywebview injiziert window.pywebview async).
+    detectNative();
+    if (typeof window !== 'undefined') window.addEventListener('pywebviewready', detectNative);
   });
 
   onDestroy(() => {
     timers.forEach((t) => clearTimeout(t));
     clearTimeout(savedTimer);
+    if (typeof window !== 'undefined') window.removeEventListener('pywebviewready', detectNative);
   });
 
   function flashSaved() {
@@ -87,12 +108,10 @@
     else scheduleSave(rule);
   }
 
-  async function addRule() {
-    const base = {
-      name: 'Neue Regel', enabled: true,
-      conditions: [{ logic: 'WENN', field: 'Absender', operator: 'enthält', value: '' }],
-      baseFolder: 'D:/Rechnungen', subfolders: ['{jahr}'], nameParts: ['{datum}'],
-    };
+  async function addRule(preset) {
+    presetMenu = false;
+    // Tiefe Kopie, damit Edits an der neuen Regel nicht das Vorlagen-Template mutieren.
+    const base = structuredClone(preset || MOCK.RULE_PRESETS[0].rule);
     if (!online) {
       const id = 'r' + Date.now();
       rules = [...rules, { id, ...base }];
@@ -154,6 +173,8 @@
   }
 </script>
 
+<svelte:window onclick={onWinClick} />
+
 <div>
   <SectionHeader icon="list-filter" title="Sortier-Regeln">
     {#snippet right()}
@@ -169,7 +190,23 @@
         {:else}
           <span class="text-xs flex items-center gap-1.5" style="color:{C.textMuted}"><Icon name="check" size={13} color={C.success} />Automatisch gespeichert</span>
         {/if}
-        <Button variant="primary" icon="plus" onclick={addRule}>Neue Regel</Button>
+        <div class="relative" bind:this={presetRoot}>
+          <Button variant="primary" icon="plus" onclick={() => (presetMenu = !presetMenu)}>Neue Regel</Button>
+          {#if presetMenu}
+            <div class="absolute right-0 top-full mt-1 z-30 py-1 rounded-lg df-fade-in" style="min-width:248px; background:{C.surface}; border:1px solid {C.border}; box-shadow:0 8px 24px rgba(0,0,0,0.4)">
+              <div class="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider" style="color:{C.textMuted}">Vorlage wählen</div>
+              {#each MOCK.RULE_PRESETS as p (p.key)}
+                <button onclick={() => addRule(p.rule)} class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/5">
+                  <Icon name={p.icon} size={15} color={C.accent} class="shrink-0" />
+                  <span class="flex-1 min-w-0">
+                    <span class="block text-sm" style="color:{C.textPrimary}">{p.label}</span>
+                    <span class="block text-xs" style="color:{C.textMuted}">{p.hint}</span>
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       </div>
     {/snippet}
   </SectionHeader>
@@ -182,7 +219,7 @@
   {#if rules.length === 0}
     <Card class="p-0">
       <EmptyState icon="list-filter" title="Keine Regeln vorhanden" subtitle="Lege Regeln an, um Dokumente automatisch in Zielordner zu sortieren.">
-        {#snippet action()}<Button variant="primary" icon="plus" onclick={addRule}>Neue Regel</Button>{/snippet}
+        {#snippet action()}<Button variant="primary" icon="plus" onclick={() => addRule()}>Neue Regel</Button>{/snippet}
       </EmptyState>
     </Card>
   {:else}
@@ -194,6 +231,8 @@
           sections={openSections[rule.id]}
           isDragging={dragId === rule.id}
           isOver={overId === rule.id && dragId !== rule.id}
+          example={exampleExtraction}
+          {canPickFolder}
           onUpdate={(f) => update(rule.id, f)}
           onToggle={(k) => toggleSection(rule.id, k)}
           onDelete={() => (confirm = rule)}

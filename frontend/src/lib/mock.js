@@ -81,8 +81,60 @@ export const RULES = [
 export const RULE_FIELDS = ['Absender', 'Betrag', 'Inhalt', 'Dokumenttyp', 'Rechnungsnr.'];
 export const RULE_OPERATORS = ['enthält', 'ist', 'beginnt mit', 'größer als', 'kleiner als'];
 export const RULE_LOGIC = ['UND', 'ODER'];
-export const PLACEHOLDERS = ['{absender}', '{datum}', '{jahr}', '{monat}', '{tag}', '{rechnungsnr}', '{betrag}', '{typ}', '{waehrung}'];
-export const SUBFOLDER_OPTIONS = ['{jahr}', '{monat}', '{absender}', '{typ}', 'Rechnungen', 'Handwerker', 'Sonstige', 'Archiv'];
+
+// Feld-Metadaten: Typ + erlaubte Operatoren je Bedingungsfeld. Treibt die
+// kontext-abhängige Operatorliste (Betrag → nur Zahlen-Vergleiche, Text → enthält/…).
+export const FIELD_META = {
+  'Absender':     { typ: 'text', operators: ['enthält', 'ist', 'beginnt mit'] },
+  'Betrag':       { typ: 'zahl', operators: ['größer als', 'kleiner als', 'ist'] },
+  'Inhalt':       { typ: 'text', operators: ['enthält'] },
+  'Dokumenttyp':  { typ: 'text', operators: ['ist', 'enthält'] },
+  'Rechnungsnr.': { typ: 'text', operators: ['enthält', 'ist', 'beginnt mit'] },
+};
+export const operatorsFor = (field) => FIELD_META[field]?.operators ?? RULE_OPERATORS;
+
+// Single Source of Truth für alle Platzhalter-Tokens. Spiegelt exakt die 9 Keys
+// aus core/file_organizer.py:_build_placeholders. label/beispiel machen die Tokens
+// im UI selbsterklärend ("Jahr · 2026" statt rohem "{jahr}").
+export const TOKEN_CATALOG = [
+  { token: '{absender}',    label: 'Absender',     beispiel: 'Amazon',     gruppe: 'Absender' },
+  { token: '{datum}',       label: 'Datum',        beispiel: '2026-03-15', gruppe: 'Datum' },
+  { token: '{jahr}',        label: 'Jahr',         beispiel: '2026',       gruppe: 'Datum' },
+  { token: '{monat}',       label: 'Monat',        beispiel: '03',         gruppe: 'Datum' },
+  { token: '{tag}',         label: 'Tag',          beispiel: '15',         gruppe: 'Datum' },
+  { token: '{rechnungsnr}', label: 'Rechnungsnr.', beispiel: 'INV-12345',  gruppe: 'Beleg' },
+  { token: '{typ}',         label: 'Dokumenttyp',  beispiel: 'Rechnung',   gruppe: 'Beleg' },
+  { token: '{betrag}',      label: 'Betrag',       beispiel: '1234.56',    gruppe: 'Betrag' },
+  { token: '{waehrung}',    label: 'Währung',      beispiel: 'EUR',        gruppe: 'Betrag' },
+];
+
+// Als {value,label}-Optionen für <Select>: zeigt Label+Beispiel, speichert das Token.
+export const TOKEN_OPTIONS = TOKEN_CATALOG.map((t) => ({ value: t.token, label: `${t.label} · ${t.beispiel}` }));
+
+// Abgeleitet aus dem Katalog — keine Doppelpflege mehr.
+export const PLACEHOLDERS = TOKEN_CATALOG.map((t) => t.token);
+export const SUBFOLDER_PRESETS = ['Rechnungen', 'Handwerker', 'Sonstige', 'Archiv'];
+export const SUBFOLDER_OPTIONS = [...PLACEHOLDERS, ...SUBFOLDER_PRESETS];
+
+// Schnellstart-Vorlagen (View-Shape ohne id) für den "Neue Regel"-Button.
+export const RULE_PRESETS = [
+  { key: 'leer', label: 'Leere Regel', icon: 'file', hint: 'Von Grund auf',
+    rule: { name: 'Neue Regel', enabled: true,
+      conditions: [{ logic: 'WENN', field: 'Absender', operator: 'enthält', value: '' }],
+      baseFolder: 'D:/Rechnungen', subfolders: ['{jahr}'], nameParts: ['{datum}'] } },
+  { key: 'absender-jahr', label: 'Nach Absender & Jahr', icon: 'folder', hint: '…/{Jahr}/{Absender}/',
+    rule: { name: 'Nach Absender & Jahr', enabled: true,
+      conditions: [{ logic: 'WENN', field: 'Absender', operator: 'enthält', value: '' }],
+      baseFolder: 'D:/Rechnungen', subfolders: ['{jahr}', '{absender}'], nameParts: ['{datum}', '{rechnungsnr}'] } },
+  { key: 'typ', label: 'Nach Dokumenttyp', icon: 'file-text', hint: '…/{Jahr}/{Typ}/',
+    rule: { name: 'Nach Dokumenttyp', enabled: true,
+      conditions: [{ logic: 'WENN', field: 'Dokumenttyp', operator: 'ist', value: 'Rechnung' }],
+      baseFolder: 'D:/Rechnungen', subfolders: ['{jahr}', '{typ}'], nameParts: ['{datum}', '{absender}'] } },
+  { key: 'betrag', label: 'Betrag über Schwelle', icon: 'zap', hint: 'z.B. > 1000 €',
+    rule: { name: 'Große Beträge', enabled: true,
+      conditions: [{ logic: 'WENN', field: 'Betrag', operator: 'größer als', value: '1000' }],
+      baseFolder: 'D:/Rechnungen', subfolders: ['{jahr}', 'Hohe-Betraege'], nameParts: ['{datum}', '{absender}', '{betrag}'] } },
+];
 
 export const INPUT_FOLDERS = [
   { id: 'f1', path: 'D:/Scans/Eingang', active: true, exists: true },
@@ -149,7 +201,5 @@ Gesamtbetrag:      1.234,56 EUR
 Zahlbar innerhalb 14 Tage netto.
 IBAN: DE89 3704 0044 0532 0130 00`;
 
-export const PREVIEW_DATA = {
-  '{absender}': 'Amazon', '{datum}': '2026-03-15', '{jahr}': '2026', '{monat}': '03',
-  '{tag}': '15', '{rechnungsnr}': 'INV-12345', '{betrag}': '1234,56', '{typ}': 'Rechnung', '{waehrung}': 'EUR',
-};
+// Beispielwerte für die statische Offline-Vorschau — aus dem Token-Katalog abgeleitet.
+export const PREVIEW_DATA = Object.fromEntries(TOKEN_CATALOG.map((t) => [t.token, t.beispiel]));

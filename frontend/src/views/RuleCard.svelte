@@ -3,17 +3,26 @@
   import Switch from '../lib/components/Switch.svelte';
   import Select from '../lib/components/Select.svelte';
   import TextInput from '../lib/components/TextInput.svelte';
+  import TokenCombo from '../lib/components/TokenCombo.svelte';
   import RuleSection from './_RuleSection.svelte';
   import { C } from '../lib/tokens.js';
-  import { previewPath } from '../lib/adapters.js';
-  import { RULE_FIELDS, RULE_OPERATORS, RULE_LOGIC, PLACEHOLDERS, SUBFOLDER_OPTIONS } from '../lib/mock.js';
+  import { previewPath, viewToRule } from '../lib/adapters.js';
+  import { api } from '../lib/api.js';
+  import { RULE_FIELDS, RULE_LOGIC, TOKEN_OPTIONS, TOKEN_CATALOG, operatorsFor } from '../lib/mock.js';
 
-  let { rule, index, sections, isDragging, isOver, onUpdate, onToggle, onDelete, onDragStart, onDragEnter, onDragEnd, onDrop } = $props();
+  let { rule, index, sections, isDragging, isOver, example = null, canPickFolder = false,
+        onUpdate, onToggle, onDelete, onDragStart, onDragEnter, onDragEnd, onDrop } = $props();
 
   let grabbable = $state(false);
-  let preview = $derived(previewPath(rule));
 
   const setCond = (i, f) => onUpdate({ conditions: rule.conditions.map((c, j) => (j === i ? { ...c, ...f } : c)) });
+  // Feldwechsel: Operator zurücksetzen, falls er für den neuen Feldtyp ungültig ist
+  // (sonst bliebe z.B. "enthält" auf dem Zahlen-Feld "Betrag" stehen).
+  function setField(i, field) {
+    const ops = operatorsFor(field);
+    const cur = rule.conditions[i].operator;
+    setCond(i, { field, operator: ops.includes(cur) ? cur : ops[0] });
+  }
   const addCond = () => onUpdate({ conditions: [...rule.conditions, { logic: 'UND', field: 'Absender', operator: 'enthält', value: '' }] });
   const rmCond = (i) => onUpdate({ conditions: rule.conditions.filter((_, j) => j !== i) });
   const setSub = (i, v) => onUpdate({ subfolders: rule.subfolders.map((s, j) => (j === i ? v : s)) });
@@ -22,6 +31,32 @@
   const setName = (i, v) => onUpdate({ nameParts: rule.nameParts.map((s, j) => (j === i ? v : s)) });
   const addName = () => onUpdate({ nameParts: [...rule.nameParts, '{rechnungsnr}'] });
   const rmName = (i) => onUpdate({ nameParts: rule.nameParts.filter((_, j) => j !== i) });
+
+  // Live-Vorschau: echter Backend-Pfad (inkl. Sanitisierung) via /api/rules/preview,
+  // debounced. Offline / Fehler → statische Vorschau aus dem Token-Katalog.
+  let preview = $state(previewPath(rule));
+  let previewTimer;
+  $effect(() => {
+    const snap = { b: rule.baseFolder, s: rule.subfolders, n: rule.nameParts, c: rule.conditions }; // Tracking
+    void snap;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      try {
+        const res = await api.rulePreview(viewToRule(rule, 0), example);
+        preview = res?.preview || previewPath(rule);
+      } catch {
+        preview = previewPath(rule);
+      }
+    }, 400);
+    return () => clearTimeout(previewTimer);
+  });
+
+  async function pickFolder() {
+    try {
+      const folder = await window.pywebview?.api?.pick_folder?.();
+      if (folder) onUpdate({ baseFolder: folder });
+    } catch { /* Dialog abgebrochen */ }
+  }
 
   let hasOpen = $derived(sections && (sections.wann || sections.wohin || sections.wie));
 </script>
@@ -72,8 +107,8 @@
             {:else}
               <Select value={c.logic} onChange={(v) => setCond(i, { logic: v })} options={RULE_LOGIC} style="width:80px" />
             {/if}
-            <Select value={c.field} onChange={(v) => setCond(i, { field: v })} options={RULE_FIELDS} />
-            <Select value={c.operator} onChange={(v) => setCond(i, { operator: v })} options={RULE_OPERATORS} />
+            <Select value={c.field} onChange={(v) => setField(i, v)} options={RULE_FIELDS} />
+            <Select value={c.operator} onChange={(v) => setCond(i, { operator: v })} options={operatorsFor(c.field)} />
             <TextInput value={c.value} onChange={(v) => setCond(i, { value: v })} placeholder="Wert…" class="flex-1 min-w-[120px]" />
             <button onclick={() => rmCond(i)} class="p-1.5 rounded-md hover:bg-white/5" style="color:{C.textMuted}"><Icon name="x" size={15} /></button>
           </div>
@@ -87,12 +122,15 @@
     <div class="flex items-center gap-2 mb-2">
       <span class="text-xs w-20 shrink-0" style="color:{C.textMuted}">Basis-Ordner</span>
       <TextInput value={rule.baseFolder} onChange={(v) => onUpdate({ baseFolder: v })} mono class="flex-1" />
+      {#if canPickFolder}
+        <button onclick={pickFolder} title="Ordner auswählen" class="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-md hover:bg-white/5" style="border:1px solid {C.border}; color:{C.textSecondary}"><Icon name="folder-open" size={14} />Durchsuchen</button>
+      {/if}
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       <span class="text-xs w-20 shrink-0" style="color:{C.textMuted}">Unterordner</span>
       {#each rule.subfolders as s, i (i)}
         <div class="flex items-center">
-          <Select value={s} onChange={(v) => setSub(i, v)} options={SUBFOLDER_OPTIONS} />
+          <TokenCombo value={s} onChange={(v) => setSub(i, v)} tokens={TOKEN_CATALOG} />
           <button onclick={() => rmSub(i)} class="p-1 rounded hover:bg-white/5" style="color:{C.textMuted}"><Icon name="x" size={13} /></button>
           {#if i < rule.subfolders.length - 1}<span class="font-mono mx-0.5" style="color:{C.textMuted}">/</span>{/if}
         </div>
@@ -105,7 +143,7 @@
     <div class="flex items-center gap-1.5 flex-wrap">
       {#each rule.nameParts as s, i (i)}
         <div class="flex items-center">
-          <Select value={s} onChange={(v) => setName(i, v)} options={PLACEHOLDERS} />
+          <Select value={s} onChange={(v) => setName(i, v)} options={TOKEN_OPTIONS} />
           <button onclick={() => rmName(i)} class="p-1 rounded hover:bg-white/5" style="color:{C.textMuted}"><Icon name="x" size={13} /></button>
           {#if i < rule.nameParts.length - 1}<span class="font-mono mx-0.5" style="color:{C.textMuted}">_</span>{/if}
         </div>
