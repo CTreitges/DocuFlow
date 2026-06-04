@@ -110,7 +110,8 @@ class Processor:
         german_ocr_gpu_layers = german_ocr_cfg.get("n_gpu_layers", -1)
 
         if ocr_engine.is_available(ollama_cfg.get("url", "http://localhost:11434"),
-                                   ollama_cfg.get("model", "minicpm-v")):
+                                   ollama_cfg.get("model", "minicpm-v"),
+                                   use_german_ocr=use_german_ocr):
             try:
                 extraction = await ocr_engine.extract_from_pdf(
                     file_path,

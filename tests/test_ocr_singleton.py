@@ -78,3 +78,21 @@ def test_backend_switch_reloads(monkeypatch):
     oe._get_german_ocr(backend="ollama")     # Cache-Hit
     oe._get_german_ocr(backend="llamacpp")   # Backend-Wechsel -> reload
     assert calls == ["ollama", "llamacpp"]
+
+
+def test_is_available_ignores_german_ocr_when_disabled(monkeypatch):
+    """Regression: installiertes german-ocr-Paket darf OCR NICHT als verfuegbar
+    melden, wenn es laut Config nicht genutzt wird (use_german_ocr=False) und der
+    Ollama-Fallback unerreichbar ist. Sonst rennen OCR-frei gedachte Laeufe in den
+    toten Ollama-Fallback und enden faelschlich in Status 'fehler'."""
+    # german-ocr "installiert": is_german_ocr_available() -> True.
+    fake_mod = types.ModuleType("german_ocr")
+    fake_mod.GermanOCR = object
+    monkeypatch.setitem(sys.modules, "german_ocr", fake_mod)
+    assert oe.is_german_ocr_available() is True
+
+    unreachable = "http://127.0.0.1:1"
+    # Nicht genutzt + Ollama tot -> NICHT verfuegbar.
+    assert oe.is_available(unreachable, "none", use_german_ocr=False) is False
+    # Genutzt + Paket da -> verfuegbar.
+    assert oe.is_available(unreachable, "none", use_german_ocr=True) is True

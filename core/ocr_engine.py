@@ -97,9 +97,16 @@ async def preload_model(backend: str = "ollama", n_gpu_layers: int = -1) -> None
     await loop.run_in_executor(None, _get_german_ocr, backend, n_gpu_layers)
 
 
-def is_available(ollama_url: str = "http://localhost:11434", model: str = "minicpm-v") -> bool:
-    """Prueft ob irgendein OCR-Backend verfuegbar ist (german-ocr oder Ollama)."""
-    if is_german_ocr_available():
+def is_available(ollama_url: str = "http://localhost:11434", model: str = "minicpm-v",
+                 use_german_ocr: bool = True) -> bool:
+    """Prueft ob ein TATSAECHLICH NUTZBARES OCR-Backend verfuegbar ist.
+
+    german-ocr zaehlt nur als verfuegbar, wenn es laut Config auch genutzt werden
+    soll (``use_german_ocr``). Sonst meldete die blosse Paket-Installation OCR als
+    verfuegbar, obwohl der konfigurierte Pfad (Ollama-Fallback) unerreichbar sein
+    kann — das liess OCR-frei gedachte Laeufe in den toten Ollama-Fallback rennen.
+    """
+    if use_german_ocr and is_german_ocr_available():
         return True
     try:
         client = ollama.Client(host=ollama_url)
